@@ -12,10 +12,10 @@ plugins {
 subprojects {
     plugins.withId("org.jetbrains.kotlin.jvm") {
         tasks.withType<JavaCompile>().configureEach {
-            options.release.set(24)
+            options.release.set(21)
         }
         tasks.withType<KotlinJvmCompile>().configureEach {
-            compilerOptions.jvmTarget.set(JvmTarget.JVM_24)
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_21)
         }
     }
 }

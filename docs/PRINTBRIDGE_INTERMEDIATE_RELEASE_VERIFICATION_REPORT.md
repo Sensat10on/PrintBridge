@@ -7,7 +7,7 @@
 
 Статус проекта: **условно готов к промежуточному локальному релизу с ограничениями**; production readiness не подтверждён из-за отсутствия hardware/device smoke.
 
-Подтверждённый дефект сборочного окружения исправлен: JDK 26 выставлял Java target 26, тогда как Kotlin откатывался на target 24. Для JVM-модулей и Android-модулей зафиксирован совместимый target 24. Это не добавляет функциональности и не меняет runtime API приложения.
+Подтверждённый дефект сборочного окружения исправлен: конфигурация target 24 несовместима с фактическим JDK 21 и приводила к `UnsupportedClassVersionError` во время запуска тестов. Для JVM-модулей и Android-модулей зафиксирован совместимый target 21. Это не добавляет функциональности и не меняет runtime API приложения.
 
 ## Проверки
 
@@ -40,7 +40,7 @@
 | Small/large screen UI | PASS | root content uses scroll state and custom scrollbar; diagnostic/history screens remain present. Screenshot/device layout verification — UNTESTED. |
 | Missing Bluetooth/USB/network device | PASS | repositories return empty lists and transports expose domain errors; no device is treated as a successful print. Physical absence scenarios — UNTESTED. |
 | Gradle warning audit | PASS | current repository uses AGP 9.4.0. The former internal AGP warning was not reproduced after the target fix; remaining warnings are Kotlin Bluetooth deprecations and native-symbol stripping, not hidden. |
-| `clean test assembleDebug` | PASS | Gradle 9.7.1, all configured tests passed, Debug APK assembled. |
+| `clean test assembleDebug` | PASS | Gradle 9.7.1 on JDK 21; the initial target-24 failure was reproduced, fixed to target 21, and the clean regression build passed with all configured tests. |
 | `assembleRelease` | PASS | release APK assembled successfully; unsigned artifact below. |
 | APK installation on Samsung S25 | UNTESTED | `adb devices` returned no connected devices in this session. |
 | APK installation on Redmi Pad 2 | UNTESTED | `adb devices` returned no connected devices in this session. |
@@ -61,10 +61,10 @@
 
 ## Изменённые файлы
 
-- `build.gradle.kts` — единый JVM target 24 для JVM-модулей.
-- `app/build.gradle.kts` — Android Java source/target 24.
-- `printer-bluetooth/build.gradle.kts` — Android Java source/target 24.
-- `printer-usb/build.gradle.kts` — Android Java source/target 24.
+- `build.gradle.kts` — единый JVM target 21 для JVM-модулей.
+- `app/build.gradle.kts` — Android Java source/target 21.
+- `printer-bluetooth/build.gradle.kts` — Android Java source/target 21.
+- `printer-usb/build.gradle.kts` — Android Java source/target 21.
 - `printer-transport/src/main/kotlin/com/printbridge/transport/TcpPrinterTransport.kt` — bounded non-blocking TCP writes.
 - `docs/PRINTBRIDGE_INTERMEDIATE_RELEASE_VERIFICATION_REPORT.md` — этот отчёт.
 
