@@ -42,18 +42,18 @@
 | Gradle warning audit | PASS | current repository uses AGP 9.4.0. The former internal AGP warning was not reproduced after the target fix; remaining warnings are Kotlin Bluetooth deprecations and native-symbol stripping, not hidden. |
 | `clean test assembleDebug` | PASS | Gradle 9.7.1 on JDK 21; the initial target-24 failure was reproduced, fixed to target 21, and the clean regression build passed with all configured tests. |
 | `assembleRelease` | PASS | release APK assembled successfully; unsigned artifact below. |
-| APK installation on Samsung S25 | UNTESTED | `adb devices` returned no connected devices in this session. |
-| APK installation on Redmi Pad 2 | UNTESTED | `adb devices` returned no connected devices in this session. |
+| APK installation and launch on Samsung S25 | UNTESTED | Samsung S25 was not present in the current ADB device list. |
+| APK installation and launch on Redmi Pad 2 | PASS | Device `23619b2a` accepted the Debug APK; `MainActivity` resumed, process ID was present, and the post-launch logcat scan reported no `FATAL EXCEPTION`. |
 | Physical USB/Bluetooth/Network printing | UNTESTED | No physical printer is available; no PASS is claimed. |
 
 ## Build artifacts
 
 - Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
 - Debug size: 11,247,413 bytes
-- Debug SHA-256: `72BA498ABD4E4E787C3BE390012F002BECF36786DC6E9DC3BE31323FD9831CC5`
+- Debug SHA-256: `63FF2F1CEA495AF0B2CC4C189839A3484340AA780846FE2BA1944417E39204AB`
 - Release APK: `app/build/outputs/apk/release/app-release-unsigned.apk`
 - Release size: 7,519,110 bytes
-- Release SHA-256: `A6CED58CD95EEBE9A005CEBBEC0ECAC36170E6C4694776EB701EB988977CC677`
+- Release SHA-256: `15BBEF2643E77F805AEF452FC4C0AD9F1919A7CE1C569C3831852C1DCBD4CDBA`
 - Package name: `com.printbridge.app`
 - versionCode: `1`
 - versionName: `0.1.0`
@@ -75,7 +75,7 @@
 ## Оставшиеся ограничения
 
 - Нет физического принтера: USB, Bluetooth SPP и raw TCP печать не подтверждены на железе.
-- Нет подключённых Samsung S25/Redmi Pad 2 в текущей ADB-сессии: install/launch/logcat/UI smoke не выполнены.
+- Samsung S25 не подключён в текущей ADB-сессии; его install/launch/logcat/UI smoke остаются UNTESTED. Redmi Pad 2 проверен установкой, запуском и отсутствием `FATAL EXCEPTION`; полноценный UI smoke по всем экранам требует отдельного интерактивного прогона.
 - Release APK unsigned; для распространения нужна release signing configuration.
 - Bluetooth API содержит ожидаемые deprecation warnings для `BluetoothAdapter.getDefaultAdapter()`.
 - AGP/native strip warnings не скрывались. Их следует отдельно проверить на CI с целевой версией JDK/NDK.
