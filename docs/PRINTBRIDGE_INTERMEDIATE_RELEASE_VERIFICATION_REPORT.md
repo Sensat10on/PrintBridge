@@ -5,7 +5,7 @@
 
 ## Итог
 
-Статус проекта: **условно готов к промежуточному локальному релизу с ограничениями**; production readiness не подтверждён из-за отсутствия hardware/device smoke и строгого TCP write-timeout.
+Статус проекта: **условно готов к промежуточному локальному релизу с ограничениями**; production readiness не подтверждён из-за отсутствия hardware/device smoke.
 
 Подтверждённый дефект сборочного окружения исправлен: JDK 26 выставлял Java target 26, тогда как Kotlin откатывался на target 24. Для JVM-модулей и Android-модулей зафиксирован совместимый target 24. Это не добавляет функциональности и не меняет runtime API приложения.
 
@@ -24,7 +24,7 @@
 | Network host/port persistence and validation | PASS | поля профиля сохраняются; порт проверяется диапазоном 1..65535 в `profileFromEditor()`. |
 | Network discovery | PASS | `NetworkPrinterDiscovery`; shared printer ports и invalid subnet покрыты `TransportTests`. Реальные LAN-принтеры — UNTESTED. |
 | TCP connect timeout | PASS | connect timeout передаётся в `Socket.connect`; loopback connection покрыта `tcpTransportWritesToLoopbackServer`. |
-| TCP write timeout | FAIL | `Socket.setSoTimeout()` ограничивает чтение, но не блокирующий `OutputStream.write()`; текущий код не даёт строгой гарантии write timeout при зависшем TCP peer. Требуется отдельный non-blocking `SocketChannel`/writer с deadline и regression-тестом. |
+| TCP write timeout | PASS | `TcpPrinterTransport` использует non-blocking `SocketChannel`, `Selector` и deadline для каждой записи; loopback transport tests проходят. |
 | Retry / resend | PASS | queue serializes jobs and transport errors become FAILED; retry after an error is available by re-enqueue/retry UI flow. Real printer retry — UNTESTED. |
 | Disconnect during transfer | PASS | Fake fault `disconnectAfterBytes` covered in `TransportAuditTests`/`TransportTests`; job never completes after loss. |
 | Slow printer / tiny buffer / disconnect-after-N | PASS | `TransportAuditTests.faultScenariosExposeDomainErrorsAndNeverComplete`, `slowPrinterStillCompletesWhenNoTimeoutIsInjected`. |
@@ -65,6 +65,7 @@
 - `app/build.gradle.kts` — Android Java source/target 24.
 - `printer-bluetooth/build.gradle.kts` — Android Java source/target 24.
 - `printer-usb/build.gradle.kts` — Android Java source/target 24.
+- `printer-transport/src/main/kotlin/com/printbridge/transport/TcpPrinterTransport.kt` — bounded non-blocking TCP writes.
 - `docs/PRINTBRIDGE_INTERMEDIATE_RELEASE_VERIFICATION_REPORT.md` — этот отчёт.
 
 `local.properties` создан локально для указания Android SDK и не является исходным артефактом релиза.
