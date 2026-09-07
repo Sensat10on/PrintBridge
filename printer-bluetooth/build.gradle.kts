@@ -5,6 +5,10 @@ android {
     compileSdk = 36
 
     defaultConfig { minSdk = 26 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_24
+        targetCompatibility = JavaVersion.VERSION_24
+    }
 }
 
 dependencies {
