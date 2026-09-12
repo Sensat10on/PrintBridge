@@ -42,17 +42,21 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --console=plain --stacktrace
 
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --console=plain
+      # The app has two product flavours, so there is no bare :app:assembleDebug to depend on;
+      # building both keeps the release behaviour and the full test build compiling.
+      - name: Assemble debug APKs (paid and full)
+        run: ./gradlew :app:assemblePaidDebug :app:assembleFullDebug --console=plain
 
       - name: Lint (release gate for errors)
-        run: ./gradlew lintDebug --console=plain
+        run: ./gradlew :app:lintPaidDebug --console=plain
 
-      - name: Report artifact hash
+      - name: Report artifact hashes
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          ls -l "$APK"
-          sha256sum "$APK"
+          for APK in app/build/outputs/apk/paid/debug/app-paid-debug.apk \
+                     app/build/outputs/apk/full/debug/app-full-debug.apk; do
+            ls -l "$APK"
+            sha256sum "$APK"
+          done
 
       - name: Upload reports
         if: always()
@@ -61,7 +65,8 @@ jobs:
           name: verification-reports
           path: |
             app/build/reports/tests/**
-            app/build/reports/lint-results-debug.*
+            app/build/reports/lint-results-*.html
+            app/build/reports/lint-results-*.sarif
             '*/build/reports/tests/**'
           if-no-files-found: ignore
           retention-days: 14
