@@ -75,6 +75,7 @@ internal fun FakePanel(
 ) {
     val scope = rememberCoroutineScope()
     var copies by remember { mutableIntStateOf(1) }
+    var lastResult by remember { mutableStateOf<BatchPrintResult?>(null) }
     Text("ЛОКАЛЬНАЯ ПРОВЕРКА", style = MaterialTheme.typography.titleMedium)
     Text("Отправка пройдет в память приложения. Это удобно для проверки chunks и байтов без принтера.")
     CopiesSelector(copies, licenseStore) { copies = it }
@@ -153,6 +154,7 @@ internal fun UsbPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var copies by remember { mutableIntStateOf(1) }
+    var lastResult by remember { mutableStateOf<BatchPrintResult?>(null) }
     val usbManager = remember(context) { context.getSystemService(Context.USB_SERVICE) as UsbManager }
     val repository = remember(usbManager) { UsbPrinterRepository(usbManager) }
     var devices by remember { mutableStateOf(emptyList<UsbPrinterDeviceInfo>()) }
@@ -172,6 +174,7 @@ internal fun UsbPanel(
                 copies = licenseStore.allowedCopies(copies),
                 sourceName = "USB"
             )
+            lastResult = result
             onStatus("USB: ${result.describe()}")
         }
     }
@@ -223,6 +226,10 @@ internal fun UsbPanel(
         }
         printTo(device)
     }, modifier = Modifier.fillMaxWidth()) { Text("ПЕЧАТАТЬ ПО USB") }
+    ResumeBatchPanel(lastResult) {
+        val device = usbManager.findDevice(profile)
+        if (device == null) onStatus("USB: выбранное устройство не найдено") else printTo(device)
+    }
 }
 
 @Composable
@@ -237,6 +244,7 @@ internal fun BluetoothPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var copies by remember { mutableIntStateOf(1) }
+    var lastResult by remember { mutableStateOf<BatchPrintResult?>(null) }
     val repository = remember(context) { BluetoothDeviceRepository(context) }
     var devices by remember { mutableStateOf(emptyList<BluetoothDeviceInfo>()) }
     var selected by remember { mutableStateOf<BluetoothDeviceInfo?>(null) }
@@ -309,9 +317,30 @@ internal fun BluetoothPanel(
                 copies = licenseStore.allowedCopies(copies),
                 sourceName = "Bluetooth"
             )
+            lastResult = result
             onStatus("Bluetooth: ${result.describe()}")
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("ПЕЧАТАТЬ ПО BLUETOOTH") }
+    ResumeBatchPanel(lastResult) {
+        val address = profile.bluetoothDeviceAddress
+        if (address.isNullOrBlank()) onStatus("Bluetooth-устройство не выбрано в профиле") else scope.launch {
+            val transport = BluetoothSppPrinterTransport(
+                context,
+                address,
+                BluetoothSppPrinterTransport.DEFAULT_SERVICE_UUIDS,
+                connectTimeoutMs = DEFAULT_TRANSPORT_WRITE_TIMEOUT_MS,
+                writeTimeoutMs = profile.writeTimeoutMs ?: DEFAULT_TRANSPORT_WRITE_TIMEOUT_MS
+            )
+            lastResult = printBatch(
+                transport = transport,
+                profile = profile,
+                payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile)),
+                copies = (lastResult?.remaining ?: 1).coerceAtLeast(1),
+                sourceName = "Bluetooth"
+            )
+            onStatus("Bluetooth: ${lastResult?.describe()}")
+        }
+    }
 }
 
 @Composable
@@ -324,6 +353,7 @@ internal fun TcpPanel(
 ) {
     val scope = rememberCoroutineScope()
     var copies by remember { mutableIntStateOf(1) }
+    var lastResult by remember { mutableStateOf<BatchPrintResult?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var candidates by remember { mutableStateOf(emptyList<NetworkPrinterCandidate>()) }
 
@@ -384,49 +414,108 @@ internal fun TcpPanel(
                 copies = licenseStore.allowedCopies(copies),
                 sourceName = "TCP"
             )
+            lastResult = result
             onStatus("TCP: ${result.describe()}")
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("ПЕЧАТАТЬ ПО TCP") }
-}
-
-/** Outcome of sending one or more sheets, kept small so the UI can print a single line. */
-internal data class BatchPrintResult(val sent: Int, val attempted: Int, val state: PrintJobState, val error: String?) {
-    fun describe(): String = buildString {
-        append("отправлено $sent из $attempted, статус $state")
-        error?.let { append(": $it") }
+    ResumeBatchPanel(lastResult) {
+        val host = profile.networkHost?.trim().orEmpty()
+        if (host.isBlank()) onStatus("В профиле не задан TCP host") else scope.launch {
+            val transport = TcpPrinterTransport(
+                host,
+                profile.networkPort ?: DEFAULT_NETWORK_PORT,
+                profile.networkConnectTimeoutMs ?: DEFAULT_NETWORK_CONNECT_TIMEOUT_MS,
+                profile.networkWriteTimeoutMs ?: DEFAULT_NETWORK_WRITE_TIMEOUT_MS
+            )
+            lastResult = printBatch(
+                transport = transport,
+                profile = profile,
+                payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile)),
+                copies = (lastResult?.remaining ?: 1).coerceAtLeast(1),
+                sourceName = "TCP"
+            )
+            onStatus("TCP: ${lastResult?.describe()}")
+        }
     }
 }
 
 /**
- * Sends one payload per entry in [payloads], one queue job per sheet.
+ * Outcome of sending one or more sheets.
+ *
+ * [sentBeforeFailure] is what makes a retry possible: when a multi-page document stops at sheet
+ * five, the caller can resend from there instead of rebuilding the whole job, and [failedAt] names
+ * the sheet index that did not go through.
+ */
+internal data class BatchPrintResult(
+    val sent: Int,
+    val attempted: Int,
+    val state: PrintJobState,
+    val error: String?,
+    val sentBeforeFailure: Int = sent,
+    val failedAt: Int? = null
+) {
+    /** True when some sheets of this batch were not sent. */
+    val isPartial: Boolean get() = failedAt != null && sentBeforeFailure < attempted
+
+    /** Sheets that still have to be sent. */
+    val remaining: Int get() = (attempted - sentBeforeFailure).coerceAtLeast(0)
+
+    fun describe(): String = buildString {
+        append("отправлено $sent из $attempted, статус $state")
+        error?.let { append(": $it") }
+    }
+
+    /** One line for the retry button, or null when there is nothing to resume. */
+    fun resumeHint(): String? =
+        if (isPartial) "Не отправлено листов: $remaining, начиная с ${sentBeforeFailure + 1}-го" else null
+}
+
+/**
+ * Sends payloads as sheets, one queue job per sheet.
  *
  * Each sheet is a separate job so a thermal printer cuts between them and each gets its own
  * connection and completion state. A failure stops the batch instead of queueing the rest into a
- * link or printer that is already gone.
+ * link or printer that is already gone, and the result says how far it got.
+ *
+ * [startIndex] is how a retry resumes: the caller passes the number of sheets that already went
+ * through, and this run sends the rest while keeping the job names aligned with the document.
  */
 internal suspend fun printSheets(
     transport: PrinterTransport,
     profile: PrinterProfile,
     payloads: List<ByteArray>,
-    sourceName: String
+    sourceName: String,
+    startIndex: Int = 0,
+    totalSheets: Int = startIndex + payloads.size
 ): BatchPrintResult {
     val queue = PrintQueue(transport)
-    val total = payloads.size.coerceAtLeast(1)
-    var sent = 0
+    val total = totalSheets.coerceAtLeast(1)
+    if (payloads.isEmpty()) {
+        return BatchPrintResult(sent = startIndex, attempted = total, state = PrintJobState.COMPLETED, error = null)
+    }
     var state = PrintJobState.QUEUED
     var error: String? = null
-    payloads.forEachIndexed { index, payload ->
+    payloads.forEachIndexed { offset, payload ->
+        val documentIndex = startIndex + offset
         val job = queue.enqueue(
-            PrintJob(source = "$sourceName ${index + 1}/$total", printerProfileId = profile.id),
+            PrintJob(source = "$sourceName ${documentIndex + 1}/$total", printerProfileId = profile.id),
             profile,
             payload
         )
         state = job.state
         error = job.lastError
-        if (job.state != PrintJobState.COMPLETED) return BatchPrintResult(sent + 1, total, state, error)
-        sent++
+        if (job.state != PrintJobState.COMPLETED) {
+            return BatchPrintResult(
+                sent = documentIndex,
+                attempted = total,
+                state = state,
+                error = error,
+                sentBeforeFailure = documentIndex,
+                failedAt = documentIndex
+            )
+        }
     }
-    return BatchPrintResult(sent, total, state, error)
+    return BatchPrintResult(sent = startIndex + payloads.size, attempted = total, state = state, error = error)
 }
 
 /** Convenience wrapper for the ready-job path: the same payload printed [copies] times. */

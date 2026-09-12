@@ -89,6 +89,7 @@ both paths can be checked. See `docs/KNOWN_LIMITATIONS.md` for the exact scope.
 
 - `docs/ARCHITECTURE.md` — module boundaries and data flow
 - `docs/RELEASE_PROCESS.md` — toolchain, versioning, signing, verification
+- `docs/FILE_PRINTING_AND_EXPORT.md` — file input, share sheet, resume, export
 - `docs/KNOWN_LIMITATIONS.md` — what is deliberately unverified
 - `docs/PRINTBRIDGE_RELEASE_VERIFICATION_REPORT_0_2_0.md` — latest verification run
 - `docs/PRINTER_PROFILES.md`, `docs/TCP_PRINTING.md`, `docs/BLUETOOTH_SPP.md`, `docs/SIMULATOR.md`,

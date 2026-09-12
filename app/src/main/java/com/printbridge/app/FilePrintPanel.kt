@@ -64,6 +64,8 @@ internal fun FilePrintPanel(
     var selectedPages by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var pickedName by remember { mutableStateOf<String?>(null) }
     var loadedFrom by remember { mutableStateOf<FileSource?>(null) }
+    var lastBatch by remember { mutableStateOf<BatchPrintResult?>(null) }
+    var lastPayloads by remember { mutableStateOf<List<ByteArray>?>(null) }
     // Declared before the picker so the callback can reference it; rememberUpdatedState keeps the
     // lambda pointing at the current one instead of the first composition.
     var loadInto: (Uri, String?) -> Unit = { _, _ -> }
@@ -157,6 +159,21 @@ internal fun FilePrintPanel(
         }
     }
 
+    /** Printer bytes for the selected pages, or null when the protocol cannot print this format. */
+    fun payloadsFor(source: PrintableDocument, selected: Set<Int>): List<ByteArray>? {
+        val watermark = licenseStore.watermarkTextFor(profile)
+        val pages = selected.sorted().filter { it in source.pages.indices }
+        val payloads = pages.mapNotNull { index ->
+            composePrintableDocument(
+                profile = profile,
+                document = source,
+                watermarkText = watermark,
+                page = source.pages.getOrNull(index)
+            ).takeIf { it.isNotEmpty() }
+        }
+        return payloads.takeIf { it.isNotEmpty() }
+    }
+
     val loaded = document
     if (loaded != null) {
         Text("$pickedName — ${describe(loaded, licenseStore)}")
@@ -209,17 +226,8 @@ internal fun FilePrintPanel(
                 return@Button
             }
             scope.launch {
-                val watermark = licenseStore.watermarkTextFor(profile)
-                val payloads = pages.mapNotNull { index ->
-                    val bytes = composePrintableDocument(
-                        profile = profile,
-                        document = current,
-                        watermarkText = watermark,
-                        page = current.pages.getOrNull(index)
-                    )
-                    bytes.takeIf { it.isNotEmpty() }
-                }
-                if (payloads.isEmpty()) {
+                val payloads = payloadsFor(current, selectedPages)
+                if (payloads == null) {
                     onStatus("Нечего печатать: профиль ${profile.protocol} не поддерживает этот тип документа")
                     return@launch
                 }
@@ -238,11 +246,40 @@ internal fun FilePrintPanel(
                     payloads = payloads,
                     sourceName = "Файл"
                 )
+                lastBatch = result
+                lastPayloads = payloads
                 onStatus("Файл: ${result.describe()}")
             }
         },
         modifier = Modifier.fillMaxWidth()
     ) { Text("ПЕЧАТАТЬ ФАЙЛ") }
+
+    ResumeBatchPanel(lastBatch) {
+        val current = document
+        val payloads = lastPayloads
+        val pending = lastBatch
+        if (current == null || payloads == null || pending == null) {
+            onStatus("Нечего продолжать")
+            return@ResumeBatchPanel
+        }
+        scope.launch {
+            val transport = resolvePrintTransport(context, profile)
+            if (transport == null) {
+                onStatus("Файл: ${describeTargetError(profile)}")
+                return@launch
+            }
+            val result = printSheets(
+                transport = transport,
+                profile = profile,
+                payloads = payloads.drop(pending.sentBeforeFailure),
+                sourceName = "Файл",
+                startIndex = pending.sentBeforeFailure,
+                totalSheets = pending.attempted
+            )
+            lastBatch = result
+            onStatus("Файл (продолжение): ${result.describe()}")
+        }
+    }
 
     Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
         Text(
@@ -254,6 +291,14 @@ internal fun FilePrintPanel(
             modifier = Modifier.padding(12.dp)
         )
     }
+
+    // Export shares the loaded document, so the bytes offered are exactly the ones that print.
+    ExportPanel(
+        document = loaded,
+        profile = profile,
+        printerBytes = loaded?.let { payloadsFor(it, selectedPages)?.firstOrNull() } ?: ByteArray(0),
+        onStatus = onStatus
+    )
 }
 
 private val PICKER_MIME_TYPES = arrayOf("image/*", "application/pdf", "text/*", "text/csv")

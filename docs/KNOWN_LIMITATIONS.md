@@ -31,6 +31,10 @@ printer; `docs/TESTING_WITHOUT_PRINTER.md` describes the levels that *are* cover
 
 ## File printing
 
+See `docs/FILE_PRINTING_AND_EXPORT.md` for the full picture: how a document gets in (picker or
+share sheet), what it becomes per protocol, how a partially failed batch is resumed, and how a job
+is exported. The limitations below are the ones that matter for release.
+
 `ПЕЧАТЬ ФАЙЛА` prints a user-selected image, PDF or text file.
 
 - Images are decoded with `BitmapFactory` using `inSampleSize`, scaled to the printer width and
