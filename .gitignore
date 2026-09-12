@@ -13,6 +13,12 @@ captures/
 # Local tooling artifacts (Codex remote attachment bridge)
 .codex-remote-attachments/
 
+# Locally built installers: kept on disk for testing, never committed (apk/README.md stays).
+apk/*.apk
+
+# Promo signing key: publisher-side only, never committed.
+*.key
+
 # Release signing material must never be committed.
 keystore.properties
 *.jks
