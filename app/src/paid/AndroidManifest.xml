@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shippable build. The launcher icon is the FREE artwork while the paid features are locked.
+
+    ic_launcher_pro_option.png (the PRO artwork) is staged alongside it, ready for the point where
+    Google Play Billing lands. Android cannot change a launcher icon on a purchase silently: the
+    app has to enable a differently-named activity-alias carrying the PRO icon and ask the launcher
+    to refresh, which is a deliberate follow-up rather than something to fake now. See
+    docs/KNOWN_LIMITATIONS.md.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:icon="@mipmap/ic_launcher_free"
+        android:roundIcon="@mipmap/ic_launcher_free" />
+</manifest>

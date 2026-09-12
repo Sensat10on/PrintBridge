@@ -14,12 +14,15 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
 
+    <!--
+        The launcher icon is declared per product flavour (app/src/paid, app/src/full) because the
+        free, pro and test artwork differ. See docs/KNOWN_LIMITATIONS.md for how the paid icon is
+        picked.
+    -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="PrintBridge"
         android:theme="@style/Theme.PrintBridge">
         <activity

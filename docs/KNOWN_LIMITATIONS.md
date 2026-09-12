@@ -46,6 +46,27 @@ printer; `docs/TESTING_WITHOUT_PRINTER.md` describes the levels that *are* cover
   luminance threshold is applied; there is no dithering option in the UI.
 - Nothing here has been printed on a physical printer.
 
+## Launcher icons
+
+Each flavour ships its own artwork, declared in its manifest (`app/src/<flavour>/AndroidManifest.xml`)
+because the icon differs per build:
+
+| Flavour | Icon | Resource |
+|---|---|---|
+| `paid` | FREE badge | `app/src/paid/res/mipmap-xxhdpi/ic_launcher_free.png` |
+| `full` | TEST badge | `app/src/full/res/mipmap-xxhdpi/ic_launcher_test.png` |
+
+- The **PRO artwork is staged but not active**: `ic_launcher_pro_option.png` ships inside the `paid`
+  APK next to the FREE one, ready for the purchase flow. Android cannot repaint a launcher icon on
+  a purchase silently — the app has to enable a differently-named `activity-alias` carrying the PRO
+  icon and then ask the launcher to refresh, which is a follow-up to the Billing work rather than
+  something faked here.
+- The artwork is a finished rounded square, so it is shipped as a legacy (non-adaptive) icon at
+  1254x1254 in `mipmap-xxhdpi`. Letting Android scale it from one density keeps the file intact
+  instead of resampling and re-encoding it per density.
+- Themed icons (Android 13+) are not provided; a 3D render does not reduce to a usable monochrome
+  silhouette.
+
 ## Free and paid versions
 
 Two product flavours are built from the same sources, and the difference is a **compile-time**
