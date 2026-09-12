@@ -30,7 +30,14 @@ class LicenseStore(context: Context) {
 
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
-    /** True when the user owns the watermark-free, unlimited version. */
+    /**
+     * A promo code grants the same entitlement a purchase does, so it is consulted here instead of
+     * forking the free/paid rules. Promo storage lives in [PromoActivationStore] and stays separate
+     * so a promo can be withdrawn without touching a purchase.
+     */
+    private val promos = PromoActivationStore(context)
+
+    /** True when the user owns the watermark-free, unlimited version, by purchase or by promo. */
     fun isLicensed(): Boolean = isLicensedFor(BuildConfig.FREE_TIER_ENFORCED)
 
     /**
@@ -38,7 +45,7 @@ class LicenseStore(context: Context) {
      * free tier is not enforced (the `full` test build) the license is always present.
      */
     fun isLicensedFor(enforced: Boolean): Boolean =
-        !enforced || preferences.getBoolean(KEY_LICENSED, false)
+        !enforced || preferences.getBoolean(KEY_LICENSED, false) || promos.isActivated()
 
     /**
      * Watermark text for the current entitlement, or null when the job must be printed unmarked.
