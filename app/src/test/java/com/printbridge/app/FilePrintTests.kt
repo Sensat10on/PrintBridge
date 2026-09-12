@@ -24,21 +24,51 @@ class FilePrintTests {
 
     // ---------- entitlement ----------
 
+    // The `paid` build enforces the free tier; the `full` test build unlocks everything. Both
+    // policies are asserted explicitly so the same suite is meaningful in either flavour.
+
     @Test
-    fun freeBuildWatermarksEveryPrintAndPaidBuildDoesNot() {
+    fun enforcingBuildWatermarksUntilALicenceIsGranted() {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
         val profile = DefaultProfiles.all.first()
 
-        assertFalse("A fresh install is the free version", store.isLicensed())
-        assertEquals(WatermarkComposer.DEFAULT_TEXT, store.watermarkTextFor(profile))
+        assertFalse("A fresh install is the free version", store.isLicensedFor(enforced = true))
+        assertEquals(WatermarkComposer.DEFAULT_TEXT, store.watermarkTextFor(profile, enforced = true))
 
         store.grantLicense()
-        assertTrue(store.isLicensed())
-        assertNull("A licensed build must not stamp anything", store.watermarkTextFor(profile))
+        assertTrue(store.isLicensedFor(enforced = true))
+        assertNull("A licensed build must not stamp anything", store.watermarkTextFor(profile, enforced = true))
 
         store.revokeLicense()
-        assertFalse(store.isLicensed())
-        assertEquals(WatermarkComposer.DEFAULT_TEXT, store.watermarkTextFor(profile))
+        assertFalse(store.isLicensedFor(enforced = true))
+        assertEquals(WatermarkComposer.DEFAULT_TEXT, store.watermarkTextFor(profile, enforced = true))
+    }
+
+    @Test
+    fun fullTestBuildIsUnlockedWithoutALicence() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+        val profile = DefaultProfiles.all.first()
+        store.revokeLicense()
+
+        assertTrue("The full build always behaves as licensed", store.isLicensedFor(enforced = false))
+        assertNull("No watermark in the full build", store.watermarkTextFor(profile, enforced = false))
+        assertEquals(Int.MAX_VALUE, store.maxSheetsPerJobFor(enforced = false))
+        assertEquals(listOf(0, 1, 2), store.allowedPages(pagedDocument(3), enforced = false))
+        assertEquals(
+            LicenseStore.MAX_SELECTABLE_COPIES,
+            store.allowedCopies(LicenseStore.MAX_SELECTABLE_COPIES, enforced = false)
+        )
+    }
+
+    @Test
+    fun compiledFlavourMatchesItsBuildConfigFlag() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+
+        assertEquals(
+            "isLicensed() must follow BuildConfig.FREE_TIER_ENFORCED",
+            !BuildConfig.FREE_TIER_ENFORCED,
+            store.isLicensed()
+        )
     }
 
     @Test
@@ -46,7 +76,7 @@ class FilePrintTests {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
         val profile = DefaultProfiles.all.first().copy(watermarkText = "ПРОБНАЯ ВЕРСИЯ")
 
-        assertEquals("ПРОБНАЯ ВЕРСИЯ", store.watermarkTextFor(profile))
+        assertEquals("ПРОБНАЯ ВЕРСИЯ", store.watermarkTextFor(profile, enforced = true))
     }
 
     // ---------- sheet limit ----------
@@ -64,44 +94,44 @@ class FilePrintTests {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
         val document = pagedDocument(5)
 
-        assertEquals(listOf(0), store.allowedPages(document))
-        assertTrue(store.isPageLimitReached(document))
+        assertEquals(listOf(0), store.allowedPages(document, enforced = true))
+        assertTrue(store.isPageLimitReached(document, enforced = true))
 
         store.grantLicense()
-        assertEquals(listOf(0, 1, 2, 3, 4), store.allowedPages(document))
-        assertFalse(store.isPageLimitReached(document))
+        assertEquals(listOf(0, 1, 2, 3, 4), store.allowedPages(document, enforced = true))
+        assertFalse(store.isPageLimitReached(document, enforced = true))
     }
 
     @Test
     fun singlePageDocumentIsNotLimited() {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
 
-        assertEquals(listOf(0), store.allowedPages(pagedDocument(1)))
-        assertFalse(store.isPageLimitReached(pagedDocument(1)))
+        assertEquals(listOf(0), store.allowedPages(pagedDocument(1), enforced = true))
+        assertFalse(store.isPageLimitReached(pagedDocument(1), enforced = true))
     }
 
     @Test
     fun documentWithoutPagesAllowsNothing() {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
 
-        assertTrue(store.allowedPages(PrintableDocument(sourceName = "empty", text = "")).isEmpty())
+        assertTrue(store.allowedPages(PrintableDocument(sourceName = "empty", text = ""), enforced = true).isEmpty())
     }
 
     @Test
     fun freeVersionPrintsOneCopyAndPaidVersionPrintsTheRequestedAmount() {
         val store = LicenseStore(RuntimeEnvironment.getApplication())
 
-        assertEquals(1, store.allowedCopies(5))
-        assertEquals(1, store.maxSheetsPerJob())
+        assertEquals(1, store.allowedCopies(5, enforced = true))
+        assertEquals(1, store.maxSheetsPerJobFor(enforced = true))
 
         store.grantLicense()
-        assertEquals(5, store.allowedCopies(5))
+        assertEquals(5, store.allowedCopies(5, enforced = true))
         assertEquals(
             "The selector cap applies even when licensed",
             LicenseStore.MAX_SELECTABLE_COPIES,
-            store.allowedCopies(999)
+            store.allowedCopies(999, enforced = true)
         )
-        assertEquals("At least one sheet is always printed", 1, store.allowedCopies(0))
+        assertEquals("At least one sheet is always printed", 1, store.allowedCopies(0, enforced = true))
     }
 
     // ---------- document selection ----------

@@ -73,6 +73,28 @@ android {
         }
     }
 
+    // Two builds of the same application:
+    //   paid — the shippable build. The free/paid split is enforced (one sheet per job, watermark).
+    //   full — internal test build with every feature unlocked and no watermark.
+    // The difference is a compile-time flag, so the test build cannot be confused with the
+    // release one and no runtime switch can turn the limits off in a shipped APK.
+    flavorDimensions += "tier"
+    productFlavors {
+        create("paid") {
+            dimension = "tier"
+            buildConfigField("boolean", "FREE_TIER_ENFORCED", "true")
+            // Marks the flavour in the version string so the two builds are told apart on device.
+            versionNameSuffix = ""
+        }
+        create("full") {
+            dimension = "tier"
+            buildConfigField("boolean", "FREE_TIER_ENFORCED", "false")
+            versionNameSuffix = "-full"
+            // Installs side by side with the release build instead of replacing it.
+            applicationIdSuffix = ".full"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -110,7 +132,9 @@ android {
 }
 
 // Release gate: refuse to build a distributable artifact that cannot be signed.
-tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+tasks.matching {
+    (it.name.startsWith("assemble") || it.name.startsWith("bundle")) && it.name.endsWith("Release")
+}.configureEach {
     doFirst {
         if (requireReleaseSigning && !hasReleaseSigning) {
             throw GradleException(

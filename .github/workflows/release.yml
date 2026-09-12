@@ -109,7 +109,7 @@ jobs:
           PRINTBRIDGE_KEY_ALIAS: ${{ secrets.PRINTBRIDGE_KEY_ALIAS }}
           PRINTBRIDGE_KEY_PASSWORD: ${{ secrets.PRINTBRIDGE_KEY_PASSWORD }}
         run: |
-          ./gradlew test :app:assembleRelease \
+          ./gradlew test :app:assemblePaidRelease \
             "-Pprintbridge.requireReleaseSigning=true" \
             "-Pprintbridge.versionName=${{ needs.version.outputs.versionName }}" \
             "-Pprintbridge.versionCode=${{ needs.version.outputs.versionCode }}" \
@@ -117,7 +117,7 @@ jobs:
 
       - name: Verify signature and record hashes
         run: |
-          APK=app/build/outputs/apk/release/app-release.apk
+          APK=app/build/outputs/apk/paid/release/app-paid-release.apk
           test -f "$APK"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --print-certs --verbose "$APK"
@@ -126,9 +126,9 @@ jobs:
             echo
             echo "| Artifact | Size (bytes) | SHA-256 |"
             echo "|---|---|---|"
-            echo "| app-release.apk | $(stat -c%s "$APK") | $(sha256sum "$APK" | cut -d' ' -f1) |"
+            echo "| printbridge-paid.apk | $(stat -c%s "$APK") | $(sha256sum "$APK" | cut -d' ' -f1) |"
           } >> "$GITHUB_STEP_SUMMARY"
-          cp "$APK" "app-release-${{ needs.version.outputs.versionName }}.apk"
+          cp "$APK" "printbridge-${{ needs.version.outputs.versionName }}-paid.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -145,7 +145,7 @@ jobs:
             `docs/PRINTBRIDGE_RELEASE_VERIFICATION_REPORT_0_2_0.md`.
 
             The APK is signed by the PrintBridge release key; the SHA-256 is in the job summary.
-          files: app-release-${{ needs.version.outputs.versionName }}.apk
+          files: printbridge-${{ needs.version.outputs.versionName }}-paid.apk
 
   maven-packages:
     name: Publish Maven packages

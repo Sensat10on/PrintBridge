@@ -16,6 +16,11 @@ import com.printbridge.drivers.WatermarkComposer
  *    the transport. Previews always show the real job, and a licensed build produces output
  *    identical to the plain drivers.
  *
+ * Both rules are enforced only in the `paid` build. The `full` test build is compiled with
+ * `FREE_TIER_ENFORCED = false` and behaves as if the license were always present, so testers get
+ * every feature without a purchase. This is a build-time flag rather than a runtime switch on
+ * purpose: a shipped APK must not be able to turn the limits off.
+ *
  * Purchase handling is deliberately a local entitlement only: Google Play Billing is not wired up
  * yet, so [grantLicense] exists for development. The storage format is a single boolean on purpose
  * so a real Billing client can be dropped in later without changing callers: replace
@@ -26,16 +31,31 @@ class LicenseStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     /** True when the user owns the watermark-free, unlimited version. */
-    fun isLicensed(): Boolean = preferences.getBoolean(KEY_LICENSED, false)
+    fun isLicensed(): Boolean = isLicensedFor(BuildConfig.FREE_TIER_ENFORCED)
+
+    /**
+     * Entitlement under an explicit policy. [enforced] mirrors `FREE_TIER_ENFORCED`: when the
+     * free tier is not enforced (the `full` test build) the license is always present.
+     */
+    fun isLicensedFor(enforced: Boolean): Boolean =
+        !enforced || preferences.getBoolean(KEY_LICENSED, false)
 
     /**
      * Watermark text for the current entitlement, or null when the job must be printed unmarked.
      */
     fun watermarkText(configured: String? = null): String? =
-        if (isLicensed()) null else (configured ?: WatermarkComposer.DEFAULT_TEXT)
+        watermarkTextFor(configured, BuildConfig.FREE_TIER_ENFORCED)
+
+    /** Watermark text under an explicit policy; see [isLicensedFor]. */
+    fun watermarkTextFor(configured: String?, enforced: Boolean): String? =
+        if (isLicensedFor(enforced)) null else (configured ?: WatermarkComposer.DEFAULT_TEXT)
 
     /** How many sheets one print command may produce under the current entitlement. */
-    fun maxSheetsPerJob(): Int = if (isLicensed()) Int.MAX_VALUE else FREE_SHEETS_PER_JOB
+    fun maxSheetsPerJob(): Int = maxSheetsPerJobFor(BuildConfig.FREE_TIER_ENFORCED)
+
+    /** Sheet limit under an explicit policy; see [isLicensedFor]. */
+    fun maxSheetsPerJobFor(enforced: Boolean): Int =
+        if (isLicensedFor(enforced)) Int.MAX_VALUE else FREE_SHEETS_PER_JOB
 
     fun grantLicense() {
         preferences.edit { putBoolean(KEY_LICENSED, true) }
@@ -66,24 +86,33 @@ class LicenseStore(context: Context) {
  * Used both to render the page selector and to enforce the limit before sending, so the UI can
  * never offer a page that would be refused.
  */
-internal fun LicenseStore.allowedPages(document: PrintableDocument): List<Int> {
+internal fun LicenseStore.allowedPages(
+    document: PrintableDocument,
+    enforced: Boolean = BuildConfig.FREE_TIER_ENFORCED
+): List<Int> {
     val available = document.pages.indices.toList()
     if (available.isEmpty()) return emptyList()
-    return available.take(maxSheetsPerJob())
+    return available.take(maxSheetsPerJobFor(enforced))
 }
 
 /** Copies that a single print command may produce for a ready-job template. */
-internal fun LicenseStore.allowedCopies(requested: Int): Int =
-    requested.coerceIn(1, LicenseStore.MAX_SELECTABLE_COPIES).coerceAtMost(maxSheetsPerJob())
+internal fun LicenseStore.allowedCopies(
+    requested: Int,
+    enforced: Boolean = BuildConfig.FREE_TIER_ENFORCED
+): Int = requested.coerceIn(1, LicenseStore.MAX_SELECTABLE_COPIES).coerceAtMost(maxSheetsPerJobFor(enforced))
 
-/** True when the document has more pages than the free entitlement will print. */
-internal fun LicenseStore.isPageLimitReached(document: PrintableDocument): Boolean =
-    document.pages.size > maxSheetsPerJob()
+/** True when the document has more pages than the entitlement will print. */
+internal fun LicenseStore.isPageLimitReached(
+    document: PrintableDocument,
+    enforced: Boolean = BuildConfig.FREE_TIER_ENFORCED
+): Boolean = document.pages.size > maxSheetsPerJobFor(enforced)
 
 /**
  * Watermark text to apply for [profile] given the current entitlement, or null when the job must
  * be printed unmarked. Print paths call this instead of reading the store directly so the rule
  * lives in one place.
  */
-internal fun LicenseStore.watermarkTextFor(profile: com.printbridge.core.PrinterProfile): String? =
-    watermarkText(profile.watermarkText)
+internal fun LicenseStore.watermarkTextFor(
+    profile: com.printbridge.core.PrinterProfile,
+    enforced: Boolean = BuildConfig.FREE_TIER_ENFORCED
+): String? = watermarkTextFor(profile.watermarkText, enforced)
