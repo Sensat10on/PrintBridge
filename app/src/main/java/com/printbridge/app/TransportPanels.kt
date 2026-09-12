@@ -15,10 +15,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -28,10 +30,12 @@ import com.printbridge.bluetooth.BluetoothPermissions
 import com.printbridge.bluetooth.BluetoothSppPrinterTransport
 import com.printbridge.bluetooth.BluetoothVirtualPrinterServer
 import com.printbridge.core.PrintJob
+import com.printbridge.core.PrintJobState
 import com.printbridge.core.PrintQueue
 import com.printbridge.core.PrinterProfile
-import com.printbridge.drivers.WatermarkComposer
+import com.printbridge.core.PrinterTransport
 import com.printbridge.core.TransportType
+import com.printbridge.drivers.WatermarkComposer
 import com.printbridge.transport.FakePrinterTransport
 import com.printbridge.transport.NetworkPrinterCandidate
 import com.printbridge.transport.NetworkPrinterDiscovery
@@ -70,8 +74,10 @@ internal fun FakePanel(
     onStatus: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    var copies by remember { mutableIntStateOf(1) }
     Text("ЛОКАЛЬНАЯ ПРОВЕРКА", style = MaterialTheme.typography.titleMedium)
     Text("Отправка пройдет в память приложения. Это удобно для проверки chunks и байтов без принтера.")
+    CopiesSelector(copies, licenseStore) { copies = it }
     Button(onClick = {
         scope.launch {
             if (generated.isEmpty()) {
@@ -79,12 +85,60 @@ internal fun FakePanel(
                 return@launch
             }
             val fake = FakePrinterTransport("ready-job")
+            val queue = PrintQueue(fake)
             val payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
-            val job = PrintQueue(fake).enqueue(PrintJob(source = "Локальная проверка", printerProfileId = profile.id), profile, payload)
+            val effective = licenseStore.allowedCopies(copies)
+            var lastState = PrintJobState.QUEUED
+            var lastError: String? = null
+            repeat(effective) { index ->
+                val job = queue.enqueue(
+                    PrintJob(source = "Локальная проверка ${index + 1}", printerProfileId = profile.id),
+                    profile,
+                    payload
+                )
+                lastState = job.state
+                lastError = job.lastError
+                if (job.state != PrintJobState.COMPLETED) return@repeat
+            }
             val capture = fake.capture()
-            onStatus("Локальная проверка: ${job.state}\nОтправлено байт: ${capture.totalBytes}\nЧастей: ${capture.writes.size}")
+            onStatus(
+                "Локальная проверка: $lastState" +
+                    (lastError?.let { ": $it" } ?: "") +
+                    "\nКопий: $effective" +
+                    "\nОтправлено байт: ${capture.totalBytes}" +
+                    "\nЧастей: ${capture.writes.size}"
+            )
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("ПРОВЕРИТЬ БЕЗ ПРИНТЕРА") }
+}
+
+/**
+ * Copies selector. The free entitlement caps this at one sheet per job, and the reason is stated
+ * rather than silently clamping the value.
+ */
+@Composable
+internal fun CopiesSelector(
+    copies: Int,
+    licenseStore: LicenseStore,
+    onCopiesChange: (Int) -> Unit
+) {
+    val maxCopies = licenseStore.allowedCopies(LicenseStore.MAX_SELECTABLE_COPIES)
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Копий:")
+        Button(onClick = { onCopiesChange((copies - 1).coerceAtLeast(1)) }, enabled = copies > 1) { Text("−") }
+        Text(copies.toString(), style = MaterialTheme.typography.titleMedium)
+        Button(onClick = { onCopiesChange((copies + 1).coerceAtMost(maxCopies)) }, enabled = copies < maxCopies) { Text("+") }
+    }
+    if (maxCopies == LicenseStore.FREE_SHEETS_PER_JOB) {
+        Text(
+            "Бесплатная версия печатает один лист за задание. Больше копий — в платной версии.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
 }
 
 @Composable
@@ -98,6 +152,7 @@ internal fun UsbPanel(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var copies by remember { mutableIntStateOf(1) }
     val usbManager = remember(context) { context.getSystemService(Context.USB_SERVICE) as UsbManager }
     val repository = remember(usbManager) { UsbPrinterRepository(usbManager) }
     var devices by remember { mutableStateOf(emptyList<UsbPrinterDeviceInfo>()) }
@@ -110,12 +165,14 @@ internal fun UsbPanel(
                 device,
                 (profile.writeTimeoutMs ?: DEFAULT_TRANSPORT_WRITE_TIMEOUT_MS).toInt()
             )
-            val job = PrintQueue(transport).enqueue(
-                PrintJob(source = "USB", printerProfileId = profile.id),
-                profile,
-                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
+            val result = printBatch(
+                transport = transport,
+                profile = profile,
+                payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile)),
+                copies = licenseStore.allowedCopies(copies),
+                sourceName = "USB"
             )
-            onStatus("USB: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
+            onStatus("USB: ${result.describe()}")
         }
     }
 
@@ -179,6 +236,7 @@ internal fun BluetoothPanel(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var copies by remember { mutableIntStateOf(1) }
     val repository = remember(context) { BluetoothDeviceRepository(context) }
     var devices by remember { mutableStateOf(emptyList<BluetoothDeviceInfo>()) }
     var selected by remember { mutableStateOf<BluetoothDeviceInfo?>(null) }
@@ -225,6 +283,7 @@ internal fun BluetoothPanel(
             Text(if (saved || selected?.address == device.address) "ВЫБРАН: ${device.name}" else device.name)
         }
     }
+    CopiesSelector(copies, licenseStore) { copies = it }
     Button(onClick = {
         val address = selected?.address ?: profile.bluetoothDeviceAddress ?: run {
             onStatus("Сначала выберите Bluetooth-устройство")
@@ -243,12 +302,14 @@ internal fun BluetoothPanel(
                 connectTimeoutMs = DEFAULT_TRANSPORT_WRITE_TIMEOUT_MS,
                 writeTimeoutMs = profile.writeTimeoutMs ?: DEFAULT_TRANSPORT_WRITE_TIMEOUT_MS
             )
-            val job = PrintQueue(transport).enqueue(
-                PrintJob(source = "Bluetooth SPP", printerProfileId = profile.id),
-                profile,
-                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
+            val result = printBatch(
+                transport = transport,
+                profile = profile,
+                payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile)),
+                copies = licenseStore.allowedCopies(copies),
+                sourceName = "Bluetooth"
             )
-            onStatus("Bluetooth: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
+            onStatus("Bluetooth: ${result.describe()}")
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("ПЕЧАТАТЬ ПО BLUETOOTH") }
 }
@@ -262,6 +323,7 @@ internal fun TcpPanel(
     onStatus: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    var copies by remember { mutableIntStateOf(1) }
     var scanning by remember { mutableStateOf(false) }
     var candidates by remember { mutableStateOf(emptyList<NetworkPrinterCandidate>()) }
 
@@ -298,6 +360,7 @@ internal fun TcpPanel(
             Text("${candidate.host}:${candidate.port} ${candidate.protocolHint}")
         }
     }
+    CopiesSelector(copies, licenseStore) { copies = it }
     Button(onClick = {
         val host = profile.networkHost?.trim().orEmpty()
         if (host.isBlank()) {
@@ -314,15 +377,66 @@ internal fun TcpPanel(
         scope.launch {
             onStatus("TCP: подключение к $host:$port, ${profile.protocol}, ${generated.size} байт")
             val transport = TcpPrinterTransport(host, port, connectTimeout, writeTimeout)
-            val job = PrintQueue(transport).enqueue(
-                PrintJob(source = "TCP/IP", printerProfileId = profile.id),
-                profile,
-                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
+            val result = printBatch(
+                transport = transport,
+                profile = profile,
+                payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile)),
+                copies = licenseStore.allowedCopies(copies),
+                sourceName = "TCP"
             )
-            onStatus("TCP: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
+            onStatus("TCP: ${result.describe()}")
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("ПЕЧАТАТЬ ПО TCP") }
 }
+
+/** Outcome of sending one or more sheets, kept small so the UI can print a single line. */
+internal data class BatchPrintResult(val sent: Int, val attempted: Int, val state: PrintJobState, val error: String?) {
+    fun describe(): String = buildString {
+        append("отправлено $sent из $attempted, статус $state")
+        error?.let { append(": $it") }
+    }
+}
+
+/**
+ * Sends one payload per entry in [payloads], one queue job per sheet.
+ *
+ * Each sheet is a separate job so a thermal printer cuts between them and each gets its own
+ * connection and completion state. A failure stops the batch instead of queueing the rest into a
+ * link or printer that is already gone.
+ */
+internal suspend fun printSheets(
+    transport: PrinterTransport,
+    profile: PrinterProfile,
+    payloads: List<ByteArray>,
+    sourceName: String
+): BatchPrintResult {
+    val queue = PrintQueue(transport)
+    val total = payloads.size.coerceAtLeast(1)
+    var sent = 0
+    var state = PrintJobState.QUEUED
+    var error: String? = null
+    payloads.forEachIndexed { index, payload ->
+        val job = queue.enqueue(
+            PrintJob(source = "$sourceName ${index + 1}/$total", printerProfileId = profile.id),
+            profile,
+            payload
+        )
+        state = job.state
+        error = job.lastError
+        if (job.state != PrintJobState.COMPLETED) return BatchPrintResult(sent + 1, total, state, error)
+        sent++
+    }
+    return BatchPrintResult(sent, total, state, error)
+}
+
+/** Convenience wrapper for the ready-job path: the same payload printed [copies] times. */
+internal suspend fun printBatch(
+    transport: PrinterTransport,
+    profile: PrinterProfile,
+    payload: ByteArray,
+    copies: Int,
+    sourceName: String
+): BatchPrintResult = printSheets(transport, profile, List(copies.coerceAtLeast(1)) { payload }, sourceName)
 
 internal fun TransportType.label(): String = when (this) {
     TransportType.USB -> "USB"

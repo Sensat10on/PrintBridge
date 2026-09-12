@@ -80,10 +80,10 @@ The `ПЕЧАТЬ ФАЙЛА` section prints an image, a PDF or a text/CSV file 
 profile selects. Images and PDF pages are reduced to a 1-bit raster at the printer width; text is
 wrapped to the printable column count.
 
-The app is free until a license is granted, and the free version stamps a watermark on **every**
-print. Google Play Billing is not connected yet — the diagnostics section has development buttons
-that grant and revoke the local entitlement so both paths can be checked. See
-`docs/KNOWN_LIMITATIONS.md` for the exact scope.
+The app is free until a license is granted, and the free version prints **one sheet per job** —
+the first page of a document, or one copy — with a watermark. Google Play Billing is not connected
+yet: the diagnostics section has development buttons that grant and revoke the local entitlement so
+both paths can be checked. See `docs/KNOWN_LIMITATIONS.md` for the exact scope.
 
 ## Documentation
 

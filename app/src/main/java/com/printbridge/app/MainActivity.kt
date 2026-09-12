@@ -398,7 +398,6 @@ fun PrintBridgeApp(
                         FilePrintPanel(
                             profile = profile,
                             licenseStore = licenseStore,
-                            requestUsbPermission = requestUsbPermission ?: { _, callback -> callback(false) },
                             onStatus = { result = it }
                         )
                     }

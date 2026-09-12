@@ -48,9 +48,18 @@ printer; `docs/TESTING_WITHOUT_PRINTER.md` describes the levels that *are* cover
 
 ## Free and paid versions
 
-The app is the free version until a license is granted: **every print carries a watermark**, applied
-by `WatermarkComposer` to the ESC/POS, TSPL and GOOJPRT byte streams just before the transport. The
-watermark text can be changed per profile.
+The app is the free version until a license is granted, and two rules describe the entitlement:
+
+1. **One sheet per print command.** The free version prints a single sheet — the first page of a
+   multi-page PDF, one copy of an image, one copy of a template. A page selector shows the other
+   pages as "только в платной версии", and the copies selector stops at one, so the UI never
+   offers something the print path would refuse.
+2. **Every unlicensed print carries a watermark**, applied by `WatermarkComposer` to the ESC/POS,
+   TSPL and GOOJPRT byte streams just before the transport. The text is editable per profile.
+
+Each sheet is sent as its own queue job, so a thermal printer cuts between copies and every sheet
+gets its own connection and completion state. A failure stops the batch instead of queueing the
+rest into a printer that is already gone.
 
 - Google Play Billing is **not** integrated. `LicenseStore` keeps a local boolean and the
   diagnostics screen has development buttons to grant and revoke it; a real purchase flow, receipt
@@ -58,6 +67,8 @@ watermark text can be changed per profile.
 - Because the entitlement is a local flag, it is trivially bypassable. It exists to wire the free
   and paid paths, not to enforce them.
 - Backup is disabled (`allowBackup="false"`), so the entitlement does not survive reinstall.
+- The copies selector is capped at `LicenseStore.MAX_SELECTABLE_COPIES` (20) regardless of the
+  entitlement.
 
 ## TSPL character encoding
 

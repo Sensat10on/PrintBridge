@@ -49,6 +49,61 @@ class FilePrintTests {
         assertEquals("ПРОБНАЯ ВЕРСИЯ", store.watermarkTextFor(profile))
     }
 
+    // ---------- sheet limit ----------
+
+    private fun pagedDocument(pageCount: Int): PrintableDocument {
+        val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.WHITE)
+        val page = FilePrintPipeline.toPrintable(bitmap)
+        bitmap.recycle()
+        return PrintableDocument(sourceName = "doc.pdf", pages = List(pageCount) { page })
+    }
+
+    @Test
+    fun freeVersionPrintsOnlyTheFirstSheetOfADocument() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+        val document = pagedDocument(5)
+
+        assertEquals(listOf(0), store.allowedPages(document))
+        assertTrue(store.isPageLimitReached(document))
+
+        store.grantLicense()
+        assertEquals(listOf(0, 1, 2, 3, 4), store.allowedPages(document))
+        assertFalse(store.isPageLimitReached(document))
+    }
+
+    @Test
+    fun singlePageDocumentIsNotLimited() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+
+        assertEquals(listOf(0), store.allowedPages(pagedDocument(1)))
+        assertFalse(store.isPageLimitReached(pagedDocument(1)))
+    }
+
+    @Test
+    fun documentWithoutPagesAllowsNothing() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+
+        assertTrue(store.allowedPages(PrintableDocument(sourceName = "empty", text = "")).isEmpty())
+    }
+
+    @Test
+    fun freeVersionPrintsOneCopyAndPaidVersionPrintsTheRequestedAmount() {
+        val store = LicenseStore(RuntimeEnvironment.getApplication())
+
+        assertEquals(1, store.allowedCopies(5))
+        assertEquals(1, store.maxSheetsPerJob())
+
+        store.grantLicense()
+        assertEquals(5, store.allowedCopies(5))
+        assertEquals(
+            "The selector cap applies even when licensed",
+            LicenseStore.MAX_SELECTABLE_COPIES,
+            store.allowedCopies(999)
+        )
+        assertEquals("At least one sheet is always printed", 1, store.allowedCopies(0))
+    }
+
     // ---------- document selection ----------
 
     @Test
