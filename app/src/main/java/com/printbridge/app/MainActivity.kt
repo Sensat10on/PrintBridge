@@ -70,6 +70,13 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     private var bluetoothPermissionCallback: ((Boolean) -> Unit)? = null
     private var usbPermissionCallback: ((Boolean) -> Unit)? = null
+
+    /**
+     * Document handed over by another application through the share sheet. Held as state so
+     * `onNewIntent` can replace it while the UI is alive.
+     */
+    private var sharedDocument by mutableStateOf<SharedPrintPayload?>(null)
+
     private val bluetoothPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         bluetoothPermissionCallback?.invoke(results.values.all { it })
         bluetoothPermissionCallback = null
@@ -84,6 +91,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sharedDocument = readSharedDocument(intent)
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         // ACTION_USB_PERMISSION is an app-private broadcast, so the receiver must not be
         // exported on any API level: an unprotected receiver would let another app spoof a
@@ -96,10 +104,29 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             PrintBridgeApp(
+                sharedDocument = sharedDocument,
                 requestBluetoothPermissions = { callback -> requestBluetoothPermissions(callback) },
                 requestUsbPermission = { device, callback -> requestUsbPermission(device, callback) }
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readSharedDocument(intent)?.let { sharedDocument = it }
+    }
+
+    /** Parses a share intent; only the URI or the text is kept, never the file bytes. */
+    private fun readSharedDocument(intent: Intent?): SharedPrintPayload? {
+        val shared = ShareIntentReader.read(this, intent) ?: return null
+        val text = if (shared.isText) ShareIntentReader.sharedText(intent) else null
+        return SharedPrintPayload(
+            name = shared.displayName,
+            mimeType = shared.mimeType,
+            uri = shared.uri.takeIf { !shared.isText },
+            text = text
+        )
     }
 
     override fun onDestroy() {
@@ -136,7 +163,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PrintBridgeApp(
     requestBluetoothPermissions: (((Boolean) -> Unit) -> Unit)? = null,
-    requestUsbPermission: ((UsbDevice, (Boolean) -> Unit) -> Unit)? = null
+    requestUsbPermission: ((UsbDevice, (Boolean) -> Unit) -> Unit)? = null,
+    sharedDocument: SharedPrintPayload? = null
 ) {
     MaterialTheme {
         Scaffold(topBar = { TopAppBar(title = { Text("PRINTBRIDGE") }) }) { padding ->

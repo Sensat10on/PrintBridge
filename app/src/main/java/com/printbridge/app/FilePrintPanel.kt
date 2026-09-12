@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,7 @@ import kotlinx.coroutines.launch
 internal fun FilePrintPanel(
     profile: PrinterProfile,
     licenseStore: LicenseStore,
+    shared: SharedPrintPayload? = null,
     onStatus: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -61,37 +63,83 @@ internal fun FilePrintPanel(
     var document by remember { mutableStateOf<PrintableDocument?>(null) }
     var selectedPages by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var pickedName by remember { mutableStateOf<String?>(null) }
+    var loadedFrom by remember { mutableStateOf<FileSource?>(null) }
+    // Declared before the picker so the callback can reference it; rememberUpdatedState keeps the
+    // lambda pointing at the current one instead of the first composition.
+    var loadInto: (Uri, String?) -> Unit = { _, _ -> }
 
-    fun load(uri: Uri, declaredMime: String?) {
-        val name = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: "файл"
-        pickedName = name
-        document = null
-        selectedPages = emptySet()
-        onStatus("Файл: $name — читаю...")
-        // The picker does not report the MIME type back reliably, so fall back to the file name.
-        runCatching {
-            when (FilePrintPipeline.sourceFor(declaredMime, name) ?: FilePrintPipeline.sourceFor(context.contentResolver.getType(uri), name)) {
-                DocumentSource.IMAGE -> FilePrintPipeline.readImage(context, uri, profile, name)
-                DocumentSource.PDF -> FilePrintPipeline.readPdf(context, uri, profile, name)
-                DocumentSource.TEXT -> FilePrintPipeline.readText(context, uri, name)
-                null -> throw FilePrintException("Тип файла не поддерживается. Нужны изображение, PDF или текст.")
-            }
-        }.onSuccess { loaded ->
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadInto(uri, null)
+    }
+
+    fun applyResult(result: Result<PrintableDocument>, name: String, source: FileSource) {
+        result.onSuccess { loaded ->
             document = loaded
             selectedPages = licenseStore.allowedPages(loaded).toSet()
+            loadedFrom = source
+            pickedName = name
             onStatus(describe(loaded, licenseStore))
         }.onFailure { error ->
+            document = null
+            selectedPages = emptySet()
+            loadedFrom = null
+            pickedName = name
             onStatus(error.message ?: "Не удалось прочитать файл")
         }
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) load(uri, null)
+    loadInto = { uri, declaredMime ->
+        val name = ShareIntentReader.displayName(context, uri) ?: uri.lastPathSegment ?: "файл"
+        onStatus("Файл: $name — читаю...")
+        // The picker does not report the MIME type back reliably, so fall back to the file name.
+        val mime = declaredMime ?: context.contentResolver.getType(uri)
+        applyResult(
+            runCatching {
+                when (FilePrintPipeline.sourceFor(mime, name)) {
+                    DocumentSource.IMAGE -> FilePrintPipeline.readImage(context, uri, profile, name)
+                    DocumentSource.PDF -> FilePrintPipeline.readPdf(context, uri, profile, name)
+                    DocumentSource.TEXT -> FilePrintPipeline.readText(context, uri, name)
+                    null -> throw FilePrintException("Тип файла не поддерживается. Нужны изображение, PDF или текст.")
+                }
+            },
+            name,
+            FileSource.Shared
+        )
+    }
+
+    // A document handed over by another application is loaded as soon as the section is reached.
+    LaunchedEffect(shared) {
+        val payload = shared ?: return@LaunchedEffect
+        val name = payload.name
+        applyResult(
+            runCatching {
+                if (payload.text != null) {
+                    if (payload.text.isBlank()) throw FilePrintException("Передан пустой текст")
+                    PrintableDocument(sourceName = name, text = payload.text)
+                } else {
+                    val uri = payload.uri ?: throw FilePrintException("Не удалось получить файл")
+                    when (FilePrintPipeline.sourceFor(payload.mimeType, name)) {
+                        DocumentSource.IMAGE -> FilePrintPipeline.readImage(context, uri, profile, name)
+                        DocumentSource.PDF -> FilePrintPipeline.readPdf(context, uri, profile, name)
+                        DocumentSource.TEXT -> FilePrintPipeline.readText(context, uri, name)
+                        null -> throw FilePrintException("Тип файла не поддерживается. Нужны изображение, PDF или текст.")
+                    }
+                }
+            },
+            name,
+            FileSource.External
+        )
     }
 
     // The section title lives in the screen picker above, so this heading describes the step.
     Text("ВЫБОР ФАЙЛА", style = MaterialTheme.typography.titleMedium)
     Text("Изображение, PDF или текстовый файл. Отправится через выбранный способ печати.")
+    if (shared != null) {
+        Text(
+            "Получено из другого приложения: ${shared.name}",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { picker.launch(arrayOf("image/*")) }, modifier = Modifier.weight(1f)) {
             Text("ИЗОБРАЖЕНИЕ")
@@ -259,6 +307,13 @@ internal fun resolvePrintTransport(context: Context, profile: PrinterProfile): P
         TransportType.BLUETOOTH_BLE -> null
     }
 
+/** Where the loaded document came from, so the user knows what is about to be printed. */
+internal enum class FileSource(val label: String) {
+    Picked("выбран в приложении"),
+    Shared("выбран в приложении"),
+    External("получен из другого приложения")
+}
+
 private fun describe(document: PrintableDocument, licenseStore: LicenseStore): String = when {
     document.isRaster -> {
         val first = document.pages.first()
@@ -273,10 +328,4 @@ private fun describe(document: PrintableDocument, licenseStore: LicenseStore): S
     else -> "пусто"
 }
 
-private fun queryDisplayName(context: Context, uri: Uri): String? =
-    runCatching {
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-    }.getOrNull()
 
