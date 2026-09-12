@@ -89,7 +89,8 @@ internal fun FilePrintPanel(
         if (uri != null) load(uri, null)
     }
 
-    Text("ПЕЧАТЬ ФАЙЛА", style = MaterialTheme.typography.titleMedium)
+    // The section title lives in the screen picker above, so this heading describes the step.
+    Text("ВЫБОР ФАЙЛА", style = MaterialTheme.typography.titleMedium)
     Text("Изображение, PDF или текстовый файл. Отправится через выбранный способ печати.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { picker.launch(arrayOf("image/*")) }, modifier = Modifier.weight(1f)) {

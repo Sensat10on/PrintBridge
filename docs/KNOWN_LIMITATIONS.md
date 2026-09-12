@@ -69,6 +69,11 @@ rest into a printer that is already gone.
 - Backup is disabled (`allowBackup="false"`), so the entitlement does not survive reinstall.
 - The copies selector is capped at `LicenseStore.MAX_SELECTABLE_COPIES` (20) regardless of the
   entitlement.
+- The screen picker, the file section layout and the transport labels were checked by hand on a
+  Galaxy S25. The page selector and the copies stepper have **not** been exercised by hand on a
+  device yet: open `ПЕЧАТЬ ФАЙЛА` with a multi-page PDF and confirm that only the first page is
+  selectable while unlicensed, then grant the licence in `ДИАГНОСТИКА` and confirm the rest become
+  selectable.
 
 ## TSPL character encoding
 

@@ -217,7 +217,6 @@ fun PrintBridgeApp(
 
                 when (screenTab) {
                     0 -> {
-                        Text("ГОТОВОЕ ЗАДАНИЕ", style = MaterialTheme.typography.titleMedium)
                         ProfilePicker(profile, profiles) { selected ->
                             profile = selected
                             applyEditor(selected)
@@ -388,7 +387,6 @@ fun PrintBridgeApp(
                     }
 
                     1 -> {
-                        Text("ПЕЧАТЬ ФАЙЛА", style = MaterialTheme.typography.titleMedium)
                         ProfilePicker(profile, profiles) { selected ->
                             profile = selected
                             applyEditor(selected)
@@ -403,7 +401,6 @@ fun PrintBridgeApp(
                     }
 
                     2 -> {
-                        Text("ПРОФИЛИ", style = MaterialTheme.typography.titleMedium)
                         ProfilePicker(profile, profiles) { selected ->
                             profile = selected
                             applyEditor(selected)
@@ -583,7 +580,6 @@ fun PrintBridgeApp(
                     }
 
                     else -> {
-                        Text("ДИАГНОСТИКА", style = MaterialTheme.typography.titleMedium)
                         LicensePanel(
                             licensed = licensed,
                             store = licenseStore,
