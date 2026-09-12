@@ -101,6 +101,7 @@ class ProfileStore(context: Context) {
         put("knownQuirks", JSONArray(knownQuirks))
         put("verified", verified)
         put("notes", notes)
+        put("watermarkText", watermarkText)
     }
 
     private fun JSONObject.toProfile() = PrinterProfile(
@@ -131,7 +132,8 @@ class ProfileStore(context: Context) {
         usbPid = nullableInt("usbPid"),
         knownQuirks = optStringArray("knownQuirks"),
         verified = optBoolean("verified", true),
-        notes = optString("notes").takeIf { it.isNotBlank() }
+        notes = optString("notes").takeIf { it.isNotBlank() },
+        watermarkText = optString("watermarkText").takeIf { it.isNotBlank() }
     )
 
     private fun mergeWithDefaults(saved: List<PrinterProfile>): List<PrinterProfile> {
@@ -170,7 +172,8 @@ class ProfileStore(context: Context) {
         usbPid = saved.usbPid,
         knownQuirks = saved.knownQuirks.ifEmpty { knownQuirks },
         verified = saved.verified,
-        notes = saved.notes ?: notes
+        notes = saved.notes ?: notes,
+        watermarkText = saved.watermarkText ?: watermarkText
     )
 
     private fun StoredPrintJobDraft.toJson() = JSONObject().apply {

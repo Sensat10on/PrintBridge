@@ -2,9 +2,12 @@ package com.printbridge.app
 
 import com.printbridge.core.PrinterProfile
 import com.printbridge.core.PrinterProtocol
+import com.printbridge.core.RasterOptions
 import com.printbridge.drivers.EscPosDriver
 import com.printbridge.drivers.GoojprtLabelDriver
+import com.printbridge.drivers.TextDocumentPrinter
 import com.printbridge.drivers.TsplDriver
+import com.printbridge.drivers.WatermarkComposer
 import com.printbridge.simulator.EscPosParser
 import com.printbridge.simulator.GoojprtLabelParser
 import com.printbridge.simulator.TsplParser
@@ -96,6 +99,78 @@ internal fun buildReadyJob(profile: PrinterProfile, draft: StoredPrintJobDraft):
         }
         else -> ByteArray(0)
     }
+
+/**
+ * Bytes that are actually sent to the printer for a ready-job template.
+ *
+ * Kept separate from [buildReadyJob] so previews and the simulator show the real job while the
+ * free/paid watermark is only applied on the way out. A licensed build passes `null` and gets the
+ * driver bytes untouched.
+ */
+internal fun composePrintableJob(
+    profile: PrinterProfile,
+    draft: StoredPrintJobDraft,
+    watermarkText: String?
+): ByteArray = WatermarkComposer.compose(buildReadyJob(profile, draft), profile, watermarkText)
+
+/** Bytes sent for a document loaded from a file (image, PDF page or text). */
+internal fun composePrintableDocument(
+    profile: PrinterProfile,
+    document: PrintableDocument,
+    watermarkText: String?,
+    page: com.printbridge.core.MonoBitmap? = document.pages.firstOrNull(),
+    columns: Int = TextDocumentPrinter.columnsFor(profile),
+    rasterOptions: RasterOptions = RasterOptions(targetWidthDots = com.printbridge.core.RasterEngine.targetWidthDots(profile))
+): ByteArray {
+    val bytes = when {
+        page != null -> buildPageJob(profile, page, rasterOptions)
+        document.text != null -> buildTextJob(profile, document.text, columns)
+        else -> ByteArray(0)
+    }
+    return WatermarkComposer.compose(bytes, profile, watermarkText)
+}
+
+private fun buildPageJob(
+    profile: PrinterProfile,
+    page: com.printbridge.core.MonoBitmap,
+    rasterOptions: RasterOptions
+): ByteArray = when (profile.protocol) {
+    PrinterProtocol.ESC_POS -> EscPosDriver().build(profile) {
+        initialize()
+        align(com.printbridge.core.Alignment.CENTER)
+        raster(page)
+        feed(3)
+        if (profile.supportsCut) cut()
+    }
+    PrinterProtocol.TSPL -> TsplDriver().build(profile) {
+        size(profile.paperWidthMm, profile.paperHeightMm ?: 150f)
+        gap(profile.gapMm ?: 3f)
+        density(8)
+        speed(4)
+        cls()
+        bitmap(0, 0, page)
+        print(1)
+    }
+    PrinterProtocol.GOOJPRT_LABEL -> GoojprtLabelDriver().build(profile) {
+        val width = com.printbridge.core.mmToDots(profile.paperWidthMm, profile.dpi).coerceAtMost(384)
+        val height = com.printbridge.core.mmToDots(profile.paperHeightMm ?: 40f, profile.dpi).coerceAtMost(936)
+        pageBegin(0, 0, width, height)
+        bitmap(0, 0, page)
+        pageEnd()
+        pagePrint(1)
+    }
+    else -> ByteArray(0)
+}
+
+private fun buildTextJob(profile: PrinterProfile, text: String, columns: Int): ByteArray {
+    val encoding = TextEncoding.forPrinter(profile)
+    return when (profile.protocol) {
+        PrinterProtocol.ESC_POS -> TextDocumentPrinter.composeEscPos(profile, text, columns, encoding.charset)
+        PrinterProtocol.TSPL -> TextDocumentPrinter.composeTspl(profile, text, columns)
+        PrinterProtocol.GOOJPRT_LABEL -> TextDocumentPrinter.composeGoojprt(profile, text, columns)
+        else -> ByteArray(0)
+    }
+}
 
 private fun buildReceipt(profile: PrinterProfile, draft: StoredPrintJobDraft): ByteArray = EscPosDriver().build(profile) {
     initialize()

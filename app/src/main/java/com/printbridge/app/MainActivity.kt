@@ -156,6 +156,7 @@ fun PrintBridgeApp(
             var networkPortText by remember(profile.id) { mutableStateOf((profile.networkPort ?: DEFAULT_NETWORK_PORT).toString()) }
             var networkConnectTimeoutText by remember(profile.id) { mutableStateOf((profile.networkConnectTimeoutMs ?: DEFAULT_NETWORK_CONNECT_TIMEOUT_MS).toString()) }
             var networkWriteTimeoutText by remember(profile.id) { mutableStateOf((profile.networkWriteTimeoutMs ?: DEFAULT_NETWORK_WRITE_TIMEOUT_MS).toString()) }
+            var watermarkText by remember(profile.id) { mutableStateOf(profile.watermarkText.orEmpty()) }
             var screenTab by remember { mutableIntStateOf(0) }
             var diagnosticTab by remember { mutableIntStateOf(0) }
             var result by remember { mutableStateOf("Заданий пока нет") }
@@ -168,6 +169,8 @@ fun PrintBridgeApp(
             var qrText by remember { mutableStateOf(savedDraft.qrText) }
             var history by remember { mutableStateOf(store.loadHistory()) }
             var virtualPrinterStatus by remember { mutableStateOf("Сервер выключен") }
+            val licenseStore = remember(context) { LicenseStore(context) }
+            var licensed by remember { mutableStateOf(licenseStore.isLicensed()) }
 
             // Single place that mirrors a profile into the profile form, so no field can be
             // missed when the selection, protocol or saved values change.
@@ -184,6 +187,7 @@ fun PrintBridgeApp(
                 networkPortText = values.networkPort
                 networkConnectTimeoutText = values.networkConnectTimeout
                 networkWriteTimeoutText = values.networkWriteTimeout
+                watermarkText = source.watermarkText.orEmpty()
             }
             val virtualPrinterServer = remember(context) {
                 BluetoothVirtualPrinterServer(
@@ -207,11 +211,9 @@ fun PrintBridgeApp(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                PrimaryTabRow(selectedTabIndex = screenTab) {
-                    listOf("ЗАДАНИЕ", "ПРОФИЛИ", "ДИАГНОСТИКА").forEachIndexed { index, title ->
-                        Tab(selected = screenTab == index, onClick = { screenTab = index }, text = { Text(title, maxLines = 1) })
-                    }
-                }
+                // A dropdown instead of a tab row: four full Russian titles do not fit the tab
+                // width on a 1080px phone and were truncated mid-word.
+                ScreenSectionPicker(selected = screenTab, onSelected = { screenTab = it })
 
                 when (screenTab) {
                     0 -> {
@@ -343,6 +345,7 @@ fun PrintBridgeApp(
                             TransportType.USB -> UsbPanel(
                                 generated = generated,
                                 profile = profile,
+                                licenseStore = licenseStore,
                                 requestPermission = requestUsbPermission ?: { _, callback -> callback(false) },
                                 onProfileUpdated = { updated ->
                                     profiles = profiles.map { if (it.id == updated.id) updated else it }
@@ -354,6 +357,7 @@ fun PrintBridgeApp(
                             TransportType.BLUETOOTH_SPP -> BluetoothPanel(
                                 generated = generated,
                                 profile = profile,
+                                licenseStore = licenseStore,
                                 requestPermissions = requestBluetoothPermissions ?: { _ -> },
                                 onProfileUpdated = { updated ->
                                     profiles = profiles.map { if (it.id == updated.id) updated else it }
@@ -365,6 +369,7 @@ fun PrintBridgeApp(
                             TransportType.TCP -> TcpPanel(
                                 generated = generated,
                                 profile = profile,
+                                licenseStore = licenseStore,
                                 onProfileUpdated = { updated ->
                                     profiles = profiles.map { if (it.id == updated.id) updated else it }
                                     profile = updated
@@ -376,12 +381,29 @@ fun PrintBridgeApp(
                             else -> FakePanel(
                                 generated = generated,
                                 profile = profile,
+                                licenseStore = licenseStore,
                                 onStatus = { result = it }
                             )
                         }
                     }
 
                     1 -> {
+                        Text("ПЕЧАТЬ ФАЙЛА", style = MaterialTheme.typography.titleMedium)
+                        ProfilePicker(profile, profiles) { selected ->
+                            profile = selected
+                            applyEditor(selected)
+                            result = "Выбран профиль: ${selected.displayName}"
+                        }
+                        Text("Способ печати: ${profile.transportType.label()}   Протокол: ${profile.protocol}")
+                        FilePrintPanel(
+                            profile = profile,
+                            licenseStore = licenseStore,
+                            requestUsbPermission = requestUsbPermission ?: { _, callback -> callback(false) },
+                            onStatus = { result = it }
+                        )
+                    }
+
+                    2 -> {
                         Text("ПРОФИЛИ", style = MaterialTheme.typography.titleMedium)
                         ProfilePicker(profile, profiles) { selected ->
                             profile = selected
@@ -463,15 +485,28 @@ fun PrintBridgeApp(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Text("Лимит бесплатной версии", style = MaterialTheme.typography.titleSmall)
+                        OutlinedTextField(
+                            value = watermarkText,
+                            onValueChange = { watermarkText = it },
+                            label = { Text("Текст метки (пусто = по умолчанию)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (!licensed) {
+                            Text("Сейчас активна бесплатная версия: метка ставится на каждую печать.")
+                        }
                         Button(onClick = {
-                            val updated = profileFromEditor(
+                            val edited = profileFromEditor(
                                 profile, profileName, dpiText, paperWidthText, paperHeightText, chunkSizeText, delayText,
                                 writeTimeoutText, networkHostText, networkPortText, networkConnectTimeoutText, networkWriteTimeoutText
-                            ) ?: run {
+                            )
+                            if (edited == null) {
                                 result = "Проверьте параметры профиля: положительные числа, порт 1..65535, " +
                                     "таймаут $MIN_TIMEOUT_MS..$MAX_TIMEOUT_MS мс, часть 1..$MAX_CHUNK_SIZE_BYTES байт"
                                 return@Button
                             }
+                            val updated = edited.copy(watermarkText = watermarkText.trim().takeIf { it.isNotBlank() })
                             profiles = profiles.map { if (it.id == updated.id) updated else it }
                             profile = updated
                             applyEditor(updated)
@@ -550,6 +585,14 @@ fun PrintBridgeApp(
 
                     else -> {
                         Text("ДИАГНОСТИКА", style = MaterialTheme.typography.titleMedium)
+                        LicensePanel(
+                            licensed = licensed,
+                            store = licenseStore,
+                            onLicensedChanged = { isLicensed ->
+                                licensed = isLicensed
+                                result = if (isLicensed) "Лицензия активирована: метка снята" else "Лицензия сброшена: метка вернётся"
+                            }
+                        )
                         Button(onClick = {
                             generated = EscPosDriver().testPage(profile.copy(protocol = PrinterProtocol.ESC_POS))
                             result = inspect(generated, PrinterProtocol.ESC_POS)
@@ -600,6 +643,36 @@ fun PrintBridgeApp(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScreenSectionPicker(selected: Int, onSelected: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = SCREEN_SECTIONS[selected.coerceIn(SCREEN_SECTIONS.indices)],
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Раздел") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true).fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            SCREEN_SECTIONS.forEachIndexed { index, title ->
+                DropdownMenuItem(
+                    text = { Text(if (index == selected) "✓ $title" else title) },
+                    onClick = {
+                        onSelected(index)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Sections of the main screen, in the order they appear in [ScreenSectionPicker]. */
+private val SCREEN_SECTIONS = listOf("Задание", "Печать файла", "Профили", "Диагностика")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

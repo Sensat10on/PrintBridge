@@ -30,6 +30,7 @@ import com.printbridge.bluetooth.BluetoothVirtualPrinterServer
 import com.printbridge.core.PrintJob
 import com.printbridge.core.PrintQueue
 import com.printbridge.core.PrinterProfile
+import com.printbridge.drivers.WatermarkComposer
 import com.printbridge.core.TransportType
 import com.printbridge.transport.FakePrinterTransport
 import com.printbridge.transport.NetworkPrinterCandidate
@@ -42,10 +43,20 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun TransportPicker(selected: TransportType, onSelected: (TransportType) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        listOf(TransportType.USB, TransportType.BLUETOOTH_SPP, TransportType.TCP, TransportType.FAKE).forEach { transport ->
-            Button(onClick = { onSelected(transport) }, modifier = Modifier.weight(1f)) {
-                Text(if (selected == transport) "✓ ${transport.label()}" else transport.label(), maxLines = 1)
+    // Two rows of two: four buttons in a single row truncate their labels on a 1080px phone
+    // ("Blue", "Net"), which was confirmed on a Galaxy S25.
+    val transports = listOf(TransportType.USB, TransportType.BLUETOOTH_SPP, TransportType.TCP, TransportType.FAKE)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        transports.chunked(2).forEach { rowTransports ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowTransports.forEach { transport ->
+                    Button(onClick = { onSelected(transport) }, modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (selected == transport) "✓ ${transport.label()}" else transport.label(),
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }
@@ -55,6 +66,7 @@ internal fun TransportPicker(selected: TransportType, onSelected: (TransportType
 internal fun FakePanel(
     generated: ByteArray,
     profile: PrinterProfile,
+    licenseStore: LicenseStore,
     onStatus: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -67,7 +79,8 @@ internal fun FakePanel(
                 return@launch
             }
             val fake = FakePrinterTransport("ready-job")
-            val job = PrintQueue(fake).enqueue(PrintJob(source = "Локальная проверка", printerProfileId = profile.id), profile, generated)
+            val payload = WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
+            val job = PrintQueue(fake).enqueue(PrintJob(source = "Локальная проверка", printerProfileId = profile.id), profile, payload)
             val capture = fake.capture()
             onStatus("Локальная проверка: ${job.state}\nОтправлено байт: ${capture.totalBytes}\nЧастей: ${capture.writes.size}")
         }
@@ -78,6 +91,7 @@ internal fun FakePanel(
 internal fun UsbPanel(
     generated: ByteArray,
     profile: PrinterProfile,
+    licenseStore: LicenseStore,
     requestPermission: (UsbDevice, (Boolean) -> Unit) -> Unit,
     onProfileUpdated: (PrinterProfile) -> Unit,
     onStatus: (String) -> Unit
@@ -99,7 +113,7 @@ internal fun UsbPanel(
             val job = PrintQueue(transport).enqueue(
                 PrintJob(source = "USB", printerProfileId = profile.id),
                 profile,
-                generated
+                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
             )
             onStatus("USB: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
         }
@@ -158,6 +172,7 @@ internal fun UsbPanel(
 internal fun BluetoothPanel(
     generated: ByteArray,
     profile: PrinterProfile,
+    licenseStore: LicenseStore,
     requestPermissions: ((Boolean) -> Unit) -> Unit,
     onProfileUpdated: (PrinterProfile) -> Unit,
     onStatus: (String) -> Unit
@@ -231,7 +246,7 @@ internal fun BluetoothPanel(
             val job = PrintQueue(transport).enqueue(
                 PrintJob(source = "Bluetooth SPP", printerProfileId = profile.id),
                 profile,
-                generated
+                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
             )
             onStatus("Bluetooth: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
         }
@@ -242,6 +257,7 @@ internal fun BluetoothPanel(
 internal fun TcpPanel(
     generated: ByteArray,
     profile: PrinterProfile,
+    licenseStore: LicenseStore,
     onProfileUpdated: (PrinterProfile) -> Unit,
     onStatus: (String) -> Unit
 ) {
@@ -301,7 +317,7 @@ internal fun TcpPanel(
             val job = PrintQueue(transport).enqueue(
                 PrintJob(source = "TCP/IP", printerProfileId = profile.id),
                 profile,
-                generated
+                WatermarkComposer.compose(generated, profile, licenseStore.watermarkTextFor(profile))
             )
             onStatus("TCP: ${job.state}${job.lastError?.let { ": $it" } ?: ""}")
         }

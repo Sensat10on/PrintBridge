@@ -49,6 +49,8 @@ class EscPosBuilder(private val profile: PrinterProfile) {
     fun bold(enabled: Boolean) = bytes(0x1b, 0x45, if (enabled) 1 else 0)
     fun scale(width: Int, height: Int) = bytes(0x1d, 0x21, ((width - 1).coerceIn(0, 7) shl 4) or (height - 1).coerceIn(0, 7))
     fun textLine(value: String) { out.write(value.toByteArray(Charsets.UTF_8)); bytes(0x0a) }
+    /** Same as [textLine] but for callers that must control the byte encoding themselves. */
+    fun rawTextLine(value: ByteArray) { out.write(value); bytes(0x0a) }
     fun leftRight(left: String, right: String, columns: Int) = textLine(left + " ".repeat((columns - left.length - right.length).coerceAtLeast(1)) + right)
     fun feed(lines: Int) = bytes(0x1b, 0x64, lines.coerceIn(0, 255))
     fun cut() = bytes(0x1d, 0x56, 0x00)

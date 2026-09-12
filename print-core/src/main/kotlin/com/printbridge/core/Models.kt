@@ -44,7 +44,9 @@ data class PrinterProfile(
     val usbPid: Int? = null,
     val knownQuirks: List<String> = emptyList(),
     val verified: Boolean = true,
-    val notes: String? = null
+    val notes: String? = null,
+    /** Text stamped on every job while the app is unlicensed; null means "use the default". */
+    val watermarkText: String? = null
 )
 
 object DefaultProfiles {

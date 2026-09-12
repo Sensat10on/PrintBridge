@@ -74,12 +74,23 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 The Windows bridge works the same way with port `9191`; see `docs/WINDOWS_PRINT_BRIDGE.md`.
 
+## Printing your own files
+
+The `ПЕЧАТЬ ФАЙЛА` section prints an image, a PDF or a text/CSV file through whichever transport the
+profile selects. Images and PDF pages are reduced to a 1-bit raster at the printer width; text is
+wrapped to the printable column count.
+
+The app is free until a license is granted, and the free version stamps a watermark on **every**
+print. Google Play Billing is not connected yet — the diagnostics section has development buttons
+that grant and revoke the local entitlement so both paths can be checked. See
+`docs/KNOWN_LIMITATIONS.md` for the exact scope.
+
 ## Documentation
 
 - `docs/ARCHITECTURE.md` — module boundaries and data flow
 - `docs/RELEASE_PROCESS.md` — toolchain, versioning, signing, verification
 - `docs/KNOWN_LIMITATIONS.md` — what is deliberately unverified
-- `docs/PRINTBRIDGE_INTERMEDIATE_RELEASE_VERIFICATION_REPORT.md` — latest verification run
+- `docs/PRINTBRIDGE_RELEASE_VERIFICATION_REPORT_0_2_0.md` — latest verification run
 - `docs/PRINTER_PROFILES.md`, `docs/TCP_PRINTING.md`, `docs/BLUETOOTH_SPP.md`, `docs/SIMULATOR.md`,
   `docs/TESTING_WITHOUT_PRINTER.md`, `docs/WINDOWS_PRINT_BRIDGE.md`,
   `docs/MILESTONE3_GOOJPRT_PREP.md`, `docs/ADDING_A_DRIVER.md`, `docs/ADDING_A_TRANSPORT.md`
