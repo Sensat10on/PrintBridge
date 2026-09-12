@@ -9,3 +9,12 @@ captures/
 .cxx/
 *.log
 3side/
+
+# Local tooling artifacts (Codex remote attachment bridge)
+.codex-remote-attachments/
+
+# Release signing material must never be committed.
+keystore.properties
+*.jks
+*.keystore
+!gradle/wrapper/gradle-wrapper.jar

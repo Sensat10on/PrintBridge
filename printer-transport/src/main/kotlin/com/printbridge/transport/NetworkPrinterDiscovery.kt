@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -18,7 +20,8 @@ data class NetworkPrinterCandidate(
 
 class NetworkPrinterDiscovery(
     private val ports: List<Int> = DEFAULT_PRINTER_PORTS,
-    private val connectTimeoutMs: Int = 250
+    private val connectTimeoutMs: Int = 250,
+    private val maxConcurrentProbes: Int = DEFAULT_MAX_CONCURRENT_PROBES
 ) {
     suspend fun discoverLocalSubnets(limitPerSubnet: Int = 254): List<NetworkPrinterCandidate> = withContext(Dispatchers.IO) {
         val hosts = localIpv4Subnets(limitPerSubnet)
@@ -30,11 +33,20 @@ class NetworkPrinterDiscovery(
         discoverHosts((1..limit.coerceIn(1, 254)).map { "$prefix$it" })
     }
 
+    /**
+     * Probes every host/port pair, but bounds how many sockets are open at once: a single
+     * /24 subnet across four ports is over a thousand probes, which used to exhaust file
+     * descriptors and stall the UI when several probes were in flight per address.
+     */
     private suspend fun discoverHosts(hosts: List<String>): List<NetworkPrinterCandidate> = coroutineScope {
-        hosts.distinct().flatMap { host ->
+        val distinctHosts = hosts.distinct()
+        val permits = Semaphore(maxConcurrentProbes.coerceAtLeast(1))
+        distinctHosts.flatMap { host ->
             ports.map { port ->
                 async(Dispatchers.IO) {
-                    if (isOpen(host, port)) NetworkPrinterCandidate(host, port, port.protocolHint()) else null
+                    permits.withPermit {
+                        if (isOpen(host, port)) NetworkPrinterCandidate(host, port, port.protocolHint()) else null
+                    }
                 }
             }
         }.awaitAll().filterNotNull().sortedWith(compareBy({ it.hostAddressSortKey() }, { it.port }))
@@ -74,5 +86,6 @@ class NetworkPrinterDiscovery(
 
     companion object {
         val DEFAULT_PRINTER_PORTS = listOf(9191, 9100, 631, 515)
+        const val DEFAULT_MAX_CONCURRENT_PROBES = 48
     }
 }

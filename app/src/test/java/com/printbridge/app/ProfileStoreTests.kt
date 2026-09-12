@@ -2,6 +2,7 @@ package com.printbridge.app
 
 import android.content.Context
 import com.printbridge.core.DefaultProfiles
+import com.printbridge.core.TransportType
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,17 +64,55 @@ class ProfileStoreTests {
             manufacturer = "Vendor",
             model = "Model 1",
             alternativeNames = listOf("Alias"),
+            bluetoothNamePatterns = listOf("MTP"),
+            bluetoothDeviceName = "MTP-2",
+            bluetoothDeviceAddress = "AA:BB:CC:DD:EE:FF",
             networkHost = "printer.local",
             networkPort = 9100,
             networkConnectTimeoutMs = 1234,
             networkWriteTimeoutMs = 2345,
             chunkSize = 73,
             delayBetweenChunksMs = 9,
+            writeTimeoutMs = 4321,
+            usbVid = 0x0483,
+            usbPid = 0x5743,
+            knownQuirks = listOf("RFCOMM channel 1 fallback"),
             verified = false,
             notes = "note"
         )
         ProfileStore(context).save(listOf(profile))
         val restored = ProfileStore(context).load().single { it.id == profile.id }
         assertEquals(profile, restored)
+    }
+
+    @Test
+    fun savedRuntimeFieldsSurviveDefaultsMerge() {
+        val defaultId = DefaultProfiles.all.first().id
+        val edited = DefaultProfiles.all.first().copy(
+            transportType = TransportType.USB,
+            usbVid = 0x1234,
+            usbPid = 0x5678,
+            writeTimeoutMs = 9000,
+            networkHost = "10.0.0.9"
+        )
+
+        ProfileStore(context).save(listOf(edited))
+        val restored = ProfileStore(context).load().single { it.id == defaultId }
+
+        assertTrue(restored.transportType == TransportType.USB)
+        assertEquals(0x1234, restored.usbVid)
+        assertEquals(0x5678, restored.usbPid)
+        assertEquals(9000L, restored.writeTimeoutMs)
+        assertEquals("10.0.0.9", restored.networkHost)
+    }
+
+    @Test
+    fun malformedStoredJsonFallsBackToDefaultsInsteadOfCrashing() {
+        context.getSharedPreferences("printbridge_profiles", Context.MODE_PRIVATE)
+            .edit()
+            .putString("profiles", "{ not json ]")
+            .commit()
+
+        assertEquals(DefaultProfiles.all, ProfileStore(context).load())
     }
 }

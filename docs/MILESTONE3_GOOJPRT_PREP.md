@@ -48,6 +48,21 @@ Do not import the APK or old `printerlibs.jar` directly into PrintBridge. They t
 ## Current Limits
 
 - GOOJPRT profile is marked `verified = false` until tested with a physical GOOJPRT/MTP printer.
-- USB is still a declared transport type, not an Android runtime implementation.
-- TCP transport works at module level, but the app does not yet expose host/port profile fields.
 - The label composer is still template-based; it is not a freeform visual editor yet.
+- GOOJPRT label text is written as UTF-8 (`GoojprtLabelBuilder.zeroTerminated`), which is what the
+  vendor SDK does; this is unverified on hardware along with the rest of the protocol.
+
+## Delivered Since This Preparation Note
+
+The items previously listed as future work are implemented and covered by tests; this file is kept
+as the record of the vendor port rather than as a plan. Current state:
+
+- TCP profile fields (host, port, connect timeout, write timeout) exist in the profile editor.
+- `printer-usb` implements USB host printing: enumeration by writable bulk OUT endpoint, runtime
+  permission request, bulk writes with a bounded deadline and partial-write retry.
+- `printer-bluetooth` implements Bluetooth Classic SPP with a connect/write deadline.
+- `GOOJPRT_LABEL` has a preview surface in the app's diagnostics tab.
+- GOOJPRT malformed-command, bitmap-payload and QR/barcode termination cases are covered by
+  `SimulatorTests`.
+
+Still outstanding: real-device checks, which require physical printers.

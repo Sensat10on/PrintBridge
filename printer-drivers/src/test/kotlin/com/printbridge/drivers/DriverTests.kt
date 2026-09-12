@@ -1,10 +1,12 @@
 package com.printbridge.drivers
 
 import com.printbridge.core.DefaultProfiles
+import java.nio.charset.Charset
 import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DriverTests {
@@ -60,6 +62,43 @@ class DriverTests {
         assertTrue(bytes.containsSequence(0x1a, 0x21, 0x01))
         assertTrue(bytes.containsSequence(0x1a, 0x5d, 0x00))
         assertTrue(bytes.containsSequence(0x1a, 0x4f, 0x01, 0x01))
+    }
+
+    @Test fun tsplNonAsciiTextIsEncodedWithTheRequestedCodePageInsteadOfBeingReplaced() {
+        val latin = TsplDriver().build(DefaultProfiles.all[2]) { text(80, 60, "Größe Ærø") }
+        assertTrue(
+            latin.toString(Charsets.ISO_8859_1).contains("Größe Ærø"),
+            "Latin-1 characters must round-trip through the default TSPL code page"
+        )
+        assertFalse(latin.toString(Charsets.ISO_8859_1).contains("?"), "No character may degrade to '?'")
+
+        // Consumer label printers are single-code-page; the caller picks the page for Cyrillic.
+        val cyrillic = TsplDriver().build(DefaultProfiles.all[2], charset = Charset.forName("windows-1251")) {
+            text(80, 60, "Этикетка")
+        }
+        assertTrue(cyrillic.toString(Charset.forName("windows-1251")).contains("Этикетка"))
+    }
+
+    @Test fun tsplPayloadCannotInjectCommandsOrBreakStringLiterals() {
+        val bytes = TsplDriver().build(DefaultProfiles.all[2]) {
+            text(80, 60, "bad\"\nPRINT 99\n\"value")
+            qrcode(80, 100, "plain-backslash")
+        }
+        val commandLines = bytes.toString(Charsets.ISO_8859_1).split('\n').filter { it.isNotBlank() }
+
+        // The injected text stays inside one literal: newlines became spaces, so "PRINT 99"
+        // can no longer start its own command line.
+        assertEquals(2, commandLines.size, "A payload must not add TSPL lines")
+        assertTrue(commandLines.none { it.startsWith("PRINT 99") }, "Injected command must not become a TSPL line")
+        assertEquals("TEXT 80,60,\"0\",0,1,1,\"bad\\\" PRINT 99 \\\"value\"", commandLines[0])
+        assertEquals("QRCODE 80,100,L,5,A,0,\"plain-backslash\"", commandLines[1])
+    }
+
+    @Test fun tsplControlCharactersAndLongPayloadsAreBounded() {
+        assertEquals("a b c d", TsplText.escape("a\u0000b\tc\rd"))
+        assertEquals("say \\\"hi\\\"", TsplText.escape("say \"hi\""))
+        assertTrue(TsplText.escape("x".repeat(10_000)).count { it.isISOControl() } == 0)
+        assertTrue(TsplText.escape("y".repeat(10_000)).length <= TsplText.MAX_LINE_CHARS + 8)
     }
 
     @Test fun goojprtCompleteLabelMatchesGoldenSha256() {

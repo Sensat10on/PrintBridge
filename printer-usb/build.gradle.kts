@@ -7,12 +7,16 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 26
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+}
+
+kotlin {
+    jvmToolchain(21)
 }
 
 dependencies {

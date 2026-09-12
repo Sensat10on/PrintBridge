@@ -11,6 +11,10 @@ android {
     }
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 dependencies {
     implementation(project(":print-core"))
     implementation(project(":simulator-core"))

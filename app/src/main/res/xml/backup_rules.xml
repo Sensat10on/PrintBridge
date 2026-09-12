@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy (pre-Android 12) backup rules; backup is disabled for PrintBridge. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+</full-backup-content>

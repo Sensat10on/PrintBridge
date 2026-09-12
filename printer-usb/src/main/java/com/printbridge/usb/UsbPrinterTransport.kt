@@ -9,7 +9,9 @@ import android.hardware.usb.UsbManager
 import com.printbridge.core.ConnectionState
 import com.printbridge.core.PrintBridgeError
 import com.printbridge.core.PrinterTransport
+import com.printbridge.core.withIoDeadline
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -61,7 +63,8 @@ object UsbEndpointSelector {
 class UsbPrinterTransport(
     private val usbManager: UsbManager,
     private val device: UsbDevice,
-    private val writeTimeoutMs: Int = 5000
+    private val writeTimeoutMs: Int = 5000,
+    private val maxWriteAttempts: Int = DEFAULT_MAX_WRITE_ATTEMPTS
 ) : PrinterTransport {
     private val mutableState = MutableStateFlow(ConnectionState.DISCONNECTED)
     override val state: StateFlow<ConnectionState> = mutableState
@@ -93,16 +96,63 @@ class UsbPrinterTransport(
         connection?.close()
         connection = null
         target = null
-        mutableState.value = ConnectionState.DISCONNECTED
+        // Do not overwrite a terminal error state: the caller inspects transport.state
+        // after a failed connect/write to distinguish "failed" from "cleanly closed".
+        if (mutableState.value != ConnectionState.ERROR) {
+            mutableState.value = ConnectionState.DISCONNECTED
+        }
     }
 
+    /**
+     * Sends [data] in resumable slices. A single bulkTransfer spans one USB transaction, so a
+     * short transfer is retried with the remaining bytes instead of failing the whole job on a
+     * transient timeout.
+     */
     override suspend fun write(data: ByteArray) = withContext(Dispatchers.IO) {
         val activeConnection = connection ?: throw PrintBridgeError.ConnectionLost()
         val activeEndpoint = target?.endpoint ?: throw PrintBridgeError.ConnectionLost()
-        val written = activeConnection.bulkTransfer(activeEndpoint, data, data.size, writeTimeoutMs)
-        if (written != data.size) {
-            mutableState.value = ConnectionState.ERROR
-            throw PrintBridgeError.WriteFailed(IllegalStateException("USB wrote $written of ${data.size} bytes"))
+        if (data.isEmpty()) return@withContext
+
+        var offset = 0
+        var attempts = 0
+        while (offset < data.size) {
+            val sliceSize = (data.size - offset).coerceAtMost(MAX_SLICE_BYTES)
+            val slice = data.copyOfRange(offset, offset + sliceSize)
+            val written = try {
+                withIoDeadline(writeTimeoutMs.toLong(), "printbridge-usb-write") {
+                    activeConnection.bulkTransfer(activeEndpoint, slice, slice.size, writeTimeoutMs)
+                }
+            } catch (timeout: TimeoutCancellationException) {
+                mutableState.value = ConnectionState.ERROR
+                throw PrintBridgeError.WriteFailed(
+                    IllegalStateException(
+                        "USB bulk transfer timed out after ${writeTimeoutMs}ms at offset $offset of ${data.size}"
+                    )
+                )
+            }
+
+            if (written > 0) {
+                offset += written
+                attempts = 0
+                continue
+            }
+
+            attempts++
+            if (attempts >= maxWriteAttempts) {
+                mutableState.value = ConnectionState.ERROR
+                throw PrintBridgeError.WriteFailed(
+                    IllegalStateException(
+                        "USB bulk transfer failed after $maxWriteAttempts attempts at offset $offset of ${data.size} " +
+                            "(last result: $written)"
+                    )
+                )
+            }
         }
+    }
+
+    companion object {
+        /** Maximum bytes per bulkTransfer call; keeps retry granularity predictable. */
+        const val MAX_SLICE_BYTES: Int = 16 * 1024
+        const val DEFAULT_MAX_WRITE_ATTEMPTS: Int = 3
     }
 }

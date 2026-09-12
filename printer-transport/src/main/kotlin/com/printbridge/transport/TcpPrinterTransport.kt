@@ -66,7 +66,11 @@ class TcpPrinterTransport(
     override suspend fun disconnect() = withContext(Dispatchers.IO) {
         socket?.close()
         socket = null
-        mutableState.value = ConnectionState.DISCONNECTED
+        // Keep a terminal error state visible to the caller instead of masking a failed
+        // connect/write with a clean DISCONNECTED.
+        if (mutableState.value != ConnectionState.ERROR) {
+            mutableState.value = ConnectionState.DISCONNECTED
+        }
     }
 
     override suspend fun write(data: ByteArray) = withContext(Dispatchers.IO) {

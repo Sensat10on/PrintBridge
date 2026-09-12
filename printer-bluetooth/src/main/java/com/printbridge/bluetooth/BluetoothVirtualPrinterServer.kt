@@ -43,13 +43,18 @@ class BluetoothVirtualPrinterServer(
             return
         }
         serverJob = scope.launch {
+            var listening: BluetoothServerSocket? = null
             try {
-                serverSocket = adapter.listenUsingRfcommWithServiceRecord(
+                listening = adapter.listenUsingRfcommWithServiceRecord(
                     "PrintBridge Virtual Printer",
                     BluetoothSppPrinterTransport.SPP_UUID
                 )
+                serverSocket = listening
                 while (isActive) {
-                    serverSocket?.accept()?.use { socket ->
+                    // Read from the local reference: stop() clears the field, and accept()
+                    // on an already-obtained socket must still be unblocked by close().
+                    val client = listening.accept() ?: continue
+                    client.use { socket ->
                         Log.i(tag, "Accepted SPP client ${socket.remoteDevice?.address ?: "unknown"}")
                         val bytes = readClientBytes(socket.inputStream)
                         Log.i(tag, "Read ${bytes.size} bytes from SPP client")
@@ -68,17 +73,21 @@ class BluetoothVirtualPrinterServer(
                     }
                 }
             } finally {
-                serverSocket?.close()
-                serverSocket = null
+                try { listening?.close() } catch (_: IOException) {}
+                if (serverSocket === listening) serverSocket = null
             }
         }
     }
 
+    /**
+     * Reads until the client closes the stream. Bounded so a peer that never closes and keeps
+     * sending cannot exhaust the heap.
+     */
     private fun readClientBytes(input: java.io.InputStream): ByteArray = ByteArrayOutputStream().use { output ->
         val buffer = ByteArray(4096)
-        while (true) {
+        while (output.size() < MAX_CLIENT_BYTES) {
             val read = try {
-                input.read(buffer)
+                input.read(buffer, 0, minOf(buffer.size, MAX_CLIENT_BYTES - output.size()))
             } catch (_: IOException) {
                 break
             }
@@ -98,5 +107,10 @@ class BluetoothVirtualPrinterServer(
     fun close() {
         stop()
         scope.cancel()
+    }
+
+    companion object {
+        /** Upper bound on a single simulated job, mirroring the printer-side chunk limits. */
+        const val MAX_CLIENT_BYTES: Int = 4 * 1024 * 1024
     }
 }

@@ -1,0 +1,174 @@
+name: Release
+
+# Triggered by a version tag (v0.2.0) or manually from the Actions tab.
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# What it does:
+#   1. builds a signed release APK and attaches it to a GitHub Release;
+#   2. publishes the library modules to GitHub Packages.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   PRINTBRIDGE_KEYSTORE_BASE64  base64 of the .jks file
+#   PRINTBRIDGE_KEYSTORE_PASSWORD
+#   PRINTBRIDGE_KEY_ALIAS
+#   PRINTBRIDGE_KEY_PASSWORD
+# See docs/RELEASE_PROCESS.md for how to create them.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'Version name to publish (for example 0.2.0)'
+        required: true
+        type: string
+      versionCode:
+        description: 'Version code (must increase)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      versionCode: ${{ steps.v.outputs.versionCode }}
+      versionName: ${{ steps.v.outputs.versionName }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_CODE: ${{ inputs.versionCode }}
+          INPUT_NAME: ${{ inputs.versionName }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            NAME="${REF_NAME#v}"
+            CODE=""
+          else
+            NAME="$INPUT_NAME"
+            CODE="$INPUT_CODE"
+          fi
+          if [ -z "$CODE" ]; then
+            # gradle.properties is the source of truth for versionCode.
+            CODE="$(grep -E '^printbridge.versionCode=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')"
+          fi
+          if [ -z "$NAME" ]; then
+            echo "Version name could not be resolved" >&2
+            exit 1
+          fi
+          echo "versionName=$NAME" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $NAME ($CODE)" >> "$GITHUB_STEP_SUMMARY"
+
+  signed-apk:
+    name: Signed release APK
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.PRINTBRIDGE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "PRINTBRIDGE_KEYSTORE_BASE64 is not configured" >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        env:
+          PRINTBRIDGE_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          PRINTBRIDGE_KEYSTORE_PASSWORD: ${{ secrets.PRINTBRIDGE_KEYSTORE_PASSWORD }}
+          PRINTBRIDGE_KEY_ALIAS: ${{ secrets.PRINTBRIDGE_KEY_ALIAS }}
+          PRINTBRIDGE_KEY_PASSWORD: ${{ secrets.PRINTBRIDGE_KEY_PASSWORD }}
+        run: |
+          ./gradlew test :app:assembleRelease \
+            "-Pprintbridge.requireReleaseSigning=true" \
+            "-Pprintbridge.versionName=${{ needs.version.outputs.versionName }}" \
+            "-Pprintbridge.versionCode=${{ needs.version.outputs.versionCode }}" \
+            --console=plain --no-daemon
+
+      - name: Verify signature and record hashes
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --print-certs --verbose "$APK"
+          {
+            echo "### Release ${{ needs.version.outputs.versionName }}"
+            echo
+            echo "| Artifact | Size (bytes) | SHA-256 |"
+            echo "|---|---|---|"
+            echo "| app-release.apk | $(stat -c%s "$APK") | $(sha256sum "$APK" | cut -d' ' -f1) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cp "$APK" "app-release-${{ needs.version.outputs.versionName }}.apk"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: PrintBridge ${{ needs.version.outputs.versionName }}
+          generate_release_notes: true
+          body: |
+            Signed release APK for PrintBridge ${{ needs.version.outputs.versionName }}
+            (versionCode ${{ needs.version.outputs.versionCode }}).
+
+            Requires Android 8.0 (API 26) or newer. Installation on physical devices and
+            printing on physical printers are not verified yet; see
+            `docs/PRINTBRIDGE_RELEASE_VERIFICATION_REPORT_0_2_0.md`.
+
+            The APK is signed by the PrintBridge release key; the SHA-256 is in the job summary.
+          files: app-release-${{ needs.version.outputs.versionName }}.apk
+
+  maven-packages:
+    name: Publish Maven packages
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish libraries to GitHub Packages
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./gradlew publish \
+            "-Pprintbridge.versionName=${{ needs.version.outputs.versionName }}" \
+            --console=plain --no-daemon

@@ -1,6 +1,7 @@
 package com.printbridge.app
 
 import android.content.Context
+import androidx.core.content.edit
 import com.printbridge.core.DefaultProfiles
 import com.printbridge.core.PrinterProfile
 import com.printbridge.core.PrinterProtocol
@@ -43,7 +44,7 @@ class ProfileStore(context: Context) {
 
     fun save(profiles: List<PrinterProfile>) {
         val payload = JSONArray().apply { profiles.forEach { put(it.toJson()) } }.toString()
-        preferences.edit().putString(KEY, payload).apply()
+        preferences.edit { putString(KEY, payload) }
     }
 
     fun loadDraft(): StoredPrintJobDraft = runCatching {
@@ -52,7 +53,7 @@ class ProfileStore(context: Context) {
     }.getOrElse { StoredPrintJobDraft() }
 
     fun saveDraft(draft: StoredPrintJobDraft) {
-        preferences.edit().putString(DRAFT_KEY, draft.toJson().toString()).apply()
+        preferences.edit { putString(DRAFT_KEY, draft.toJson().toString()) }
     }
 
     fun loadHistory(): List<StoredPrintJobHistoryItem> = runCatching {
@@ -68,7 +69,7 @@ class ProfileStore(context: Context) {
     }
 
     fun clearHistory() {
-        preferences.edit().remove(HISTORY_KEY).apply()
+        preferences.edit { remove(HISTORY_KEY) }
     }
 
     private fun PrinterProfile.toJson() = JSONObject().apply {
@@ -209,7 +210,7 @@ class ProfileStore(context: Context) {
 
     private fun saveHistory(items: List<StoredPrintJobHistoryItem>) {
         val payload = JSONArray().apply { items.forEach { put(it.toJson()) } }.toString()
-        preferences.edit().putString(HISTORY_KEY, payload).apply()
+        preferences.edit { putString(HISTORY_KEY, payload) }
     }
 
     private fun JSONObject.nullableDouble(name: String): Float? = if (isNull(name)) null else getDouble(name).toFloat()

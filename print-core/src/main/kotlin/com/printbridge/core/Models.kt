@@ -152,12 +152,15 @@ class PrintQueue(
 }
 
 class WriteChunker(
-    private val defaultChunkSize: Int = 1024,
+    private val defaultChunkSize: Int = DEFAULT_CHUNK_SIZE,
     private val defaultDelayMs: Long = 0
 ) {
     suspend fun writeChunked(data: ByteArray, profile: PrinterProfile, transport: PrinterTransport, onProgress: (Int, Int) -> Unit = { _, _ -> }) {
-        val chunkSize = (profile.chunkSize ?: defaultChunkSize).coerceAtLeast(1)
-        val delayMs = profile.delayBetweenChunksMs ?: defaultDelayMs
+        // Clamped on both sides: a profile can come from persisted JSON, and an absurd
+        // chunkSize used to overflow `offset + chunkSize` and fail the job with an
+        // IndexOutOfBoundsException instead of a domain error.
+        val chunkSize = (profile.chunkSize ?: defaultChunkSize).coerceIn(1, MAX_CHUNK_SIZE)
+        val delayMs = (profile.delayBetweenChunksMs ?: defaultDelayMs).coerceAtLeast(0)
         var offset = 0
         while (offset < data.size) {
             val end = (offset + chunkSize).coerceAtMost(data.size)
@@ -166,5 +169,10 @@ class WriteChunker(
             onProgress(offset, data.size)
             if (delayMs > 0 && offset < data.size) delay(delayMs)
         }
+    }
+
+    companion object {
+        const val DEFAULT_CHUNK_SIZE: Int = 1024
+        const val MAX_CHUNK_SIZE: Int = 64 * 1024
     }
 }

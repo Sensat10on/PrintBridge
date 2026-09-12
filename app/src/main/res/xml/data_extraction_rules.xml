@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Backup is disabled for PrintBridge because SharedPreferences hold printer profiles,
+    Bluetooth addresses and network hosts. Android 12+ reads this file.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>

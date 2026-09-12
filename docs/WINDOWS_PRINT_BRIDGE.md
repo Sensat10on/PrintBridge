@@ -14,9 +14,11 @@ The default printer is marked with `*`.
 
 ## Start Bridge
 
-Use the Windows default printer:
-
 ```powershell
+# Recommended: only this machine can reach the bridge
+.\gradlew.bat :windows-print-bridge:run --args="--bind 127.0.0.1 --port 9191"
+
+# LAN clients (Android devices) must reach it
 .\gradlew.bat :windows-print-bridge:run --args="--port 9191"
 ```
 
@@ -26,7 +28,25 @@ Use a specific printer queue:
 .\gradlew.bat :windows-print-bridge:run --args="--printer ""Printer Name"" --port 9191"
 ```
 
-Allow inbound TCP port `9191` in Windows Firewall when prompted.
+Allow inbound TCP port `9191` in Windows Firewall when prompted (only when binding to `0.0.0.0`).
+
+## Options
+
+```text
+--list              List installed Windows print queues and exit
+--bind <address>    Interface to listen on (default 0.0.0.0)
+--port <number>     Listening port (default 9191)
+--printer <name>    Windows print queue name (default: system default queue)
+--max-job-bytes <n> Reject jobs larger than n bytes (default 8388608)
+--help              Show help
+```
+
+## Security
+
+The bridge is a raw TCP port with no authentication: anything that can reach it can print. Bind it
+to `127.0.0.1` unless LAN clients must reach it, and keep it off untrusted networks. Jobs larger
+than `--max-job-bytes` (default 8 MiB) are rejected, and each client connection has a 30 s read
+timeout, so a stalled peer cannot hold a thread forever.
 
 ## Android Setup
 

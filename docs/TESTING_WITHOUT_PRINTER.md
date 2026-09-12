@@ -1,17 +1,43 @@
 # Testing Without A Printer
 
-## Level 1
+Hardware verification is listed in `docs/KNOWN_LIMITATIONS.md`; these are the levels that can be
+run without one. Each level proves a narrower property than the one below it.
 
-Unit tests run protocol generation, profile, raster, queue, fake transport, chunking, fault injection, and simulator parser checks. This proves deterministic software behavior only.
+## Level 1 — unit tests
 
-## Level 2
+```powershell
+.\gradlew.bat test
+```
 
-PrintBridge writes to `FakePrinterTransport` and the inspector displays writes, bytes, chunks, HEX, RAW, timing-adjacent capture data, and errors. This proves queue and transport boundaries without hardware.
+Covers protocol byte generation (golden SHA-256 fixtures), profile persistence and the profile
+form, raster conversion, job queue serialization and cancellation, chunking, IO deadlines, fake
+transport fault injection, simulator parsers, and TCP byte-exactness against a loopback server.
+This proves deterministic software behaviour only, not printing.
 
-## Level 3
+## Level 2 — in-memory fake transport
 
-Android or JVM code sends RAW TCP bytes to `127.0.0.1:9100`, where PrintBridge Simulator receives, detects, parses, and previews them. This proves TCP byte preservation and simulator compatibility.
+`ДИАГНОСТИКА` -> `ПРОВЕРИТЬ БЕЗ ПРИНТЕРА` runs the generated job through `FakePrinterTransport` and
+reports job state, byte count, chunk count and the captured bytes (also visible as `HEX` and `RAW`).
+This proves the queue and transport boundaries without hardware.
 
-## Level 4
+## Level 3 — TCP loopback against the virtual printer
 
-Future Milestone 2: physical Android Phone A sends Bluetooth SPP to physical Android Phone B running simulator server mode. This remains UNTESTED until implemented and real devices are available.
+1. Start the simulator: `.\gradlew.bat :simulator-app:run --args="127.0.0.1 9100"`
+2. In the profile set host `127.0.0.1`, port `9100`, transport `Network`.
+3. `ПЕЧАТАТЬ ПО TCP`.
+
+The simulator reports the detected protocol, byte count, commands, warnings and a preview, which
+proves TCP byte preservation plus parser compatibility.
+
+## Level 4 — Windows bridge
+
+Forward the same bytes into a real Windows print queue; see `docs/WINDOWS_PRINT_BRIDGE.md`. This
+adds a real spooler and a real printer driver to the path, and is the closest approximation of a
+physical printer that does not require thermal hardware.
+
+## Level 5 — Bluetooth virtual printer
+
+`BluetoothVirtualPrinterServer` (diagnostics tab) turns one Android device into an SPP endpoint.
+A second device prints to it over Bluetooth SPP and the receiving device shows the parsed preview.
+This exercises the real Bluetooth stack; it is still **not** a substitute for a Bluetooth thermal
+printer and remains unverified on physical devices.
