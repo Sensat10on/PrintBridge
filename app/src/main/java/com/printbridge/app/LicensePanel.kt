@@ -17,6 +17,10 @@ import com.printbridge.drivers.WatermarkComposer
 /**
  * Shows and toggles the free/paid entitlement.
  *
+ * Two builds exist: `paid` enforces the free tier and is what ships, `full` is the internal test
+ * build compiled with `FREE_TIER_ENFORCED = false`. The panel says which one is running so a
+ * tester is never left guessing why nothing is locked.
+ *
  * Google Play Billing is not connected yet, so the purchase button explains that and the
  * development buttons flip the local entitlement — the same storage a real Billing client
  * will write to.
@@ -27,21 +31,41 @@ internal fun LicensePanel(
     store: LicenseStore,
     onLicensedChanged: (Boolean) -> Unit
 ) {
+    val freeTierEnforced = BuildConfig.FREE_TIER_ENFORCED
+
     Text("ЛИЦЕНЗИЯ", style = MaterialTheme.typography.titleMedium)
     Surface(Modifier.fillMaxWidth(), tonalElevation = 1.dp) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (licensed) "Версия: платная — метка снята" else "Версия: бесплатная — метка на каждой печати")
             Text(
-                if (licensed) {
-                    "Печать идёт без метки на всех транспортах."
-                } else {
-                    "На каждой печати ставится «${WatermarkComposer.DEFAULT_TEXT}». " +
-                        "Текст метки можно изменить в профиле."
+                when {
+                    !freeTierEnforced -> "Сборка: полная тестовая — всё открыто"
+                    licensed -> "Сборка: платная — метка снята"
+                    else -> "Сборка: платная, бесплатный режим — метка и один лист"
+                }
+            )
+            Text(
+                when {
+                    !freeTierEnforced ->
+                        "Тестовая сборка (flavor full): лимит листов и метка отключены на уровне " +
+                            "компиляции, покупка не нужна."
+                    licensed -> "Печать идёт без метки, документ печатается целиком."
+                    else ->
+                        "На каждой печати ставится «${WatermarkComposer.DEFAULT_TEXT}» и " +
+                            "отправляется один лист за задание. Текст метки меняется в профиле."
                 },
                 style = MaterialTheme.typography.bodySmall
             )
         }
     }
+
+    if (!freeTierEnforced) {
+        Text(
+            "Это внутренняя сборка для тестов: она не предназначена для распространения.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        return
+    }
+
     Button(
         onClick = { },
         modifier = Modifier.fillMaxWidth(),

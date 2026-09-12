@@ -75,12 +75,34 @@ unsigned artifact. Without it, the build succeeds but prints a warning; the arti
 
 ## 4. Release command sequence
 
+Two product flavours exist. `paid` is the shippable build; `full` is the internal test build with
+every feature unlocked (see `docs/KNOWN_LIMITATIONS.md`).
+
+| Build | Command | Output | Package |
+|---|---|---|---|
+| Release (ships) | `:app:assemblePaidRelease` | `app/build/outputs/apk/paid/release/app-paid-release.apk` | `com.printbridge.app` |
+| Release for testing | `:app:assemblePaidDebug` | `app/build/outputs/apk/paid/debug/app-paid-debug.apk` | `com.printbridge.app` |
+| Full test build | `:app:assembleFullDebug` | `app/build/outputs/apk/full/debug/app-full-debug.apk` | `com.printbridge.app.full`, version `…-full` |
+
+Both flavours install side by side: the test build carries the `.full` application id suffix.
+
 ```powershell
 cd <repo>
-.\gradlew.bat clean test assembleDebug assembleRelease lintDebug "-Pprintbridge.requireReleaseSigning=true"
+.\gradlew.bat clean test assemblePaidDebug assemblePaidRelease assembleFullDebug lintDebug `
+    "-Pprintbridge.requireReleaseSigning=true"
 ```
 
-Expected result: `BUILD SUCCESSFUL`, all unit tests green, `lintDebug` with zero errors.
+Expected result: `BUILD SUCCESSFUL`, every unit test green in both flavours (`:app:testPaidDebugUnitTest`
+and `:app:testFullDebugUnitTest`), `lintDebug` with zero errors.
+
+Install both on a device:
+
+```powershell
+adb install -r app\build\outputs\apk\paid\release\app-paid-release.apk
+adb install -r app\build\outputs\apk\full\debug\app-full-debug.apk
+# The test build keeps the namespace activity name, so launch it with the full component:
+adb shell am start -n com.printbridge.app.full/com.printbridge.app.MainActivity
+```
 
 ## 5. Artifact verification
 

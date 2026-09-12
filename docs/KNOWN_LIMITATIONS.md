@@ -48,7 +48,16 @@ printer; `docs/TESTING_WITHOUT_PRINTER.md` describes the levels that *are* cover
 
 ## Free and paid versions
 
-The app is the free version until a license is granted, and two rules describe the entitlement:
+Two product flavours are built from the same sources, and the difference is a **compile-time**
+flag (`BuildConfig.FREE_TIER_ENFORCED`) rather than a runtime switch, so a shipped APK cannot turn
+the limits off:
+
+| Flavour | Package | Behaviour |
+|---|---|---|
+| `paid` | `com.printbridge.app` | Enforces the free tier; this is the build that ships |
+| `full` | `com.printbridge.app.full`, version `…-full` | Internal test build: everything unlocked, no watermark |
+
+In the `paid` build two rules describe the entitlement:
 
 1. **One sheet per print command.** The free version prints a single sheet — the first page of a
    multi-page PDF, one copy of an image, one copy of a template. A page selector shows the other
@@ -69,11 +78,11 @@ rest into a printer that is already gone.
 - Backup is disabled (`allowBackup="false"`), so the entitlement does not survive reinstall.
 - The copies selector is capped at `LicenseStore.MAX_SELECTABLE_COPIES` (20) regardless of the
   entitlement.
-- The screen picker, the file section layout and the transport labels were checked by hand on a
-  Galaxy S25. The page selector and the copies stepper have **not** been exercised by hand on a
-  device yet: open `ПЕЧАТЬ ФАЙЛА` with a multi-page PDF and confirm that only the first page is
-  selectable while unlicensed, then grant the licence in `ДИАГНОСТИКА` and confirm the rest become
-  selectable.
+- The screen picker, the file section layout, the transport labels and the diagnostics text of both
+  flavours were checked by hand on a Galaxy S25. The page selector and the copies stepper have
+  **not** been exercised by hand on a device yet: open `ПЕЧАТЬ ФАЙЛА` with a multi-page PDF in the
+  `paid` build and confirm that only the first page is selectable, then grant the licence in
+  `ДИАГНОСТИКА` and confirm the rest become selectable.
 
 ## TSPL character encoding
 
